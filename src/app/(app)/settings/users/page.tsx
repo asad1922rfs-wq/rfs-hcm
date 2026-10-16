@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/common";
 import { formatDateTime } from "@/lib/format";
 import { CreateUserDialog, EditUserDialog, ResetPasswordDialog } from "./users-client";
 import { BulkLoginsDialog } from "./bulk-logins";
-import { env } from "@/lib/env";
+import { appUrl } from "@/lib/env";
 
 export const metadata = { title: "Users" };
 
@@ -27,7 +27,7 @@ export default async function UsersPage() {
         description={`${users.length} login${users.length === 1 ? "" : "s"} · ${employees.length} active employee${employees.length === 1 ? "" : "s"} without a login`}
         actions={
           <>
-            <BulkLoginsDialog count={employees.length} appUrl={env.APP_URL} />
+            <BulkLoginsDialog count={employees.length} appUrl={appUrl()} />
             <CreateUserDialog employees={employees} roles={assignable} />
           </>
         }

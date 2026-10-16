@@ -1,6 +1,6 @@
 import { requirePagePermission } from "@/server/auth/session";
 import { listDevicesAndAgents, ONLINE_WINDOW_MS } from "@/server/services/devices";
-import { env } from "@/lib/env";
+import { appUrl } from "@/lib/env";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -29,7 +29,7 @@ export default async function DevicesPage() {
       <PageHeader
         title="Biometric devices"
         description="ZKTeco machines push attendance (ADMS) to a sync agent on the office network, which forwards it here over HTTPS."
-        actions={<CreateAgentDialog serverUrl={env.APP_URL} />}
+        actions={<CreateAgentDialog serverUrl={appUrl()} />}
       />
 
       <div className="grid gap-6">

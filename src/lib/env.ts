@@ -11,5 +11,15 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
-export const env = schema.parse(process.env);
-export const isProduction = env.NODE_ENV === "production";
+let cached: z.infer<typeof schema> | null = null;
+
+/**
+ * Validated environment, checked on first use at runtime — not at import time, so `next build`
+ * (which has no secrets) can still collect page data.
+ */
+export function getEnv() {
+  cached ??= schema.parse(process.env);
+  return cached;
+}
+
+export const appUrl = () => getEnv().APP_URL;
