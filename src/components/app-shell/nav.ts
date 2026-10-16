@@ -23,14 +23,14 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
     items: [
       { href: "/employees", label: "Employees", icon: "employees", permission: "employee.read", scope: "team" },
       { href: "/attendance", label: "Attendance", icon: "attendance", permission: "attendance.read", scope: "team" },
-      { href: "/leave", label: "Leave", icon: "leave", permission: "leave.read", soon: true },
+      { href: "/leave", label: "Leave", icon: "leave", permission: "leave.read" },
     ],
   },
   {
     title: "Payroll",
     items: [
       { href: "/payroll", label: "Payroll", icon: "payroll", permission: "payroll.read", scope: "all" },
-      { href: "/payslips", label: "Payslips", icon: "payslips", permission: "payslip.read", soon: true },
+      { href: "/payslips", label: "Payslips", icon: "payslips", permission: "payslip.read", requiresEmployee: true },
       { href: "/reports", label: "Reports", icon: "reports", permission: "report.read", scope: "team", soon: true },
     ],
   },
@@ -40,6 +40,7 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
       { href: "/settings/company", label: "Company", icon: "company", permission: "settings.company", scope: "all" },
       { href: "/settings/organisation", label: "Departments & titles", icon: "organisation", permission: "settings.organisation", scope: "all" },
       { href: "/settings/shifts", label: "Shifts", icon: "shifts", permission: "settings.organisation", scope: "all" },
+      { href: "/settings/leave-types", label: "Leave types", icon: "leave", permission: "settings.organisation", scope: "all" },
       { href: "/settings/devices", label: "Biometric devices", icon: "devices", permission: "device.manage", scope: "all" },
       { href: "/settings/users", label: "Users", icon: "users", permission: "user.manage", scope: "all" },
       { href: "/settings/roles", label: "Roles & permissions", icon: "roles", permission: "role.manage", scope: "all" },

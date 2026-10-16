@@ -9,7 +9,8 @@ import { deleteShiftOverride, saveDepartment, saveDesignation, saveShift, saveSh
 import { createLoginsInBulk, createUser, resetRoleToDefault, type BulkLogin, resetUserPassword, updateRolePermissions, updateUser } from "@/server/services/users";
 import { optionalId, optionalText, requiredText } from "@/lib/validation";
 import { parseTimeOfDay } from "@/lib/format";
-import type { ActionResult } from "@/server/errors";
+import { AppError, type ActionResult } from "@/server/errors";
+import { removeCompanyLogo, saveCompanyLogo } from "@/server/services/branding";
 
 const checkbox = z.preprocess((v) => v === "on" || v === "true", z.boolean());
 
@@ -168,5 +169,23 @@ export async function updateRoleAction(roleId: string, _prev: ActionResult | nul
     else await updateRolePermissions(actor, roleId, fd.getAll("grants").map(String).filter(Boolean));
     revalidatePath("/settings/roles");
     return { ok: true, message: "Permissions saved." };
+  });
+}
+
+export async function uploadLogoAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const file = fd.get("logo");
+    if (!(file instanceof File) || !file.name) throw new AppError("Choose an image file.");
+    await saveCompanyLogo(await requireActor(), file);
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Logo updated." };
+  });
+}
+
+export async function removeLogoAction(): Promise<ActionResult> {
+  return runAction(async () => {
+    await removeCompanyLogo(await requireActor());
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Logo removed." };
   });
 }

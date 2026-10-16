@@ -78,12 +78,15 @@ export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; o
   );
 }
 
-export function Brand({ companyShortName }: { companyShortName: string }) {
+export function Brand({ companyShortName, logoUrl }: { companyShortName: string; logoUrl?: string | null }) {
   return (
     <Link href="/dashboard" className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
-      <span className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-        {companyShortName.slice(0, 3)}
-      </span>
+      {logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- small uploaded logo served by our own API
+        <img src={logoUrl} alt="" className="size-8 shrink-0 object-contain" />
+      ) : (
+        <span aria-hidden className="size-3 shrink-0 rounded-full bg-sidebar-primary" />
+      )}
       <span className="leading-tight">
         <span className="block text-sm font-semibold text-sidebar-accent-foreground">{companyShortName} HCM</span>
         <span className="block text-[11px] text-sidebar-foreground/60">People · Attendance · Payroll</span>

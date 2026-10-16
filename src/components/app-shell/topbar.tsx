@@ -13,15 +13,17 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { initials } from "@/lib/utils";
 import { signOutAction } from "@/app/login/actions";
 import { Brand, SidebarNav } from "./sidebar";
+import { GlobalSearch } from "./global-search";
 import type { NavSection } from "./nav";
 
 type Props = {
   sections: NavSection[];
   companyShortName: string;
+  logoUrl: string | null;
   user: { displayName: string; roleName: string; email: string | null; hasProfile: boolean };
 };
 
-export function Topbar({ sections, companyShortName, user }: Props) {
+export function Topbar({ sections, companyShortName, logoUrl, user }: Props) {
   const [open, setOpen] = useState(false);
   const { setTheme } = useTheme();
 
@@ -33,11 +35,12 @@ export function Topbar({ sections, companyShortName, user }: Props) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="w-72 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Brand companyShortName={companyShortName} />
+          <Brand companyShortName={companyShortName} logoUrl={logoUrl} />
           <SidebarNav sections={sections} onNavigate={() => setOpen(false)} />
         </SheetContent>
       </Sheet>
 
+      <div className="min-w-0 flex-1"><GlobalSearch sections={sections} /></div>
       <div className="ml-auto flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -25,6 +25,8 @@ export type PayInput = {
   /** Attendance status per work date (only dates that have a processed record). */
   days: ReadonlyMap<string, AttendanceStatusCode>;
   adjustments: readonly { kind: "EARNING" | "DEDUCTION"; label: string; amount: number }[];
+  /** Dates of approved UNPAID leave (paid leave is not deducted). */
+  unpaidLeaveDates?: ReadonlySet<string>;
 };
 
 export type PayResult = {
@@ -37,6 +39,8 @@ export type PayResult = {
   lateCount: number;
   missingPunchCount: number;
   lateDeductionDays: number;
+  paidLeaveDays: number;
+  unpaidLeaveDays: number;
   notSyncedDays: number;
   remainingDays: number;
   lines: PayLine[];
@@ -67,6 +71,7 @@ export function calculatePay(input: PayInput): PayResult {
   const perDayRate = Math.round((gross / daysInMonth) * 100) / 100;
 
   let employedDays = 0, presentDays = 0, absentDays = 0, lateCount = 0, missingPunchCount = 0, notSyncedDays = 0, remainingDays = 0;
+  let paidLeaveDays = 0, unpaidLeaveDays = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const date = iso(input.year, input.month, d);
     if (date < from || date > to) continue;
@@ -95,6 +100,8 @@ export function calculatePay(input: PayInput): PayResult {
         presentDays++;
         break;
       case "LEAVE":
+        if (input.unpaidLeaveDates?.has(date)) unpaidLeaveDays++;
+        else paidLeaveDays++;
         break;
       case undefined: {
         const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -119,6 +126,10 @@ export function calculatePay(input: PayInput): PayResult {
 
   if (absentDays > 0 && gross > 0) {
     lines.push({ kind: "DEDUCTION", code: "ABSENT", label: `Absent ${plural(absentDays, "day")} × ${perDayRate.toFixed(2)}`, amount: rupees(absentDays * perDayRate) });
+  }
+
+  if (unpaidLeaveDays > 0 && gross > 0) {
+    lines.push({ kind: "DEDUCTION", code: "UNPAID_LEAVE", label: `Unpaid leave ${plural(unpaidLeaveDays, "day")} × ${perDayRate.toFixed(2)}`, amount: rupees(unpaidLeaveDays * perDayRate) });
   }
 
   const lateDeductionDays = Math.floor((lateCount + missingPunchCount) / LATES_PER_DEDUCTION_DAY);
@@ -150,7 +161,7 @@ export function calculatePay(input: PayInput): PayResult {
   if (remainingDays > 0) warnings.push(`Month not finished: ${plural(remainingDays, "day")} still to come are counted as paid`);
 
   return {
-    daysInMonth, employedDays, gross, perDayRate, presentDays, absentDays, lateCount, missingPunchCount, lateDeductionDays,
+    daysInMonth, employedDays, gross, perDayRate, presentDays, absentDays, lateCount, missingPunchCount, lateDeductionDays, paidLeaveDays, unpaidLeaveDays,
     notSyncedDays, remainingDays, lines, earnings, deductions, netPay, warnings,
   };
 }

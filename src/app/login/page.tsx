@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getActor } from "@/server/auth/session";
 import { getCompany } from "@/server/services/organisation";
+import { logoUrl } from "@/server/services/branding";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -14,9 +15,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <div className="grid min-h-dvh lg:grid-cols-2">
       <div className="relative hidden flex-col justify-between bg-sidebar p-10 text-sidebar-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-lg bg-sidebar-primary font-bold text-sidebar-primary-foreground">
-            {company.shortName.slice(0, 3)}
-          </span>
+          {logoUrl(company) ? (
+            // eslint-disable-next-line @next/next/no-img-element -- small uploaded logo served by our own API
+            <img src={logoUrl(company)!} alt="" className="size-10 object-contain" />
+          ) : (
+            <span aria-hidden className="size-3.5 shrink-0 rounded-full bg-sidebar-primary" />
+          )}
           <span className="text-lg font-semibold text-sidebar-accent-foreground">{company.shortName} HCM</span>
         </div>
         <div className="max-w-md">

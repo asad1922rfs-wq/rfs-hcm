@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { monthRegister } from "@/server/services/attendance-edit";
+import { employeePayHistory } from "@/server/services/payroll";
+import { canAccessEmployee } from "@/server/auth/scope";
+import { PayslipList } from "../../payslips/payslip-list";
 import { RegisterTable } from "../../attendance/register-table";
 import { can, requireActor } from "@/server/auth/session";
 import { getEmployeeProfile } from "@/server/services/employees";
@@ -17,6 +20,7 @@ import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { initials } from "@/lib/utils";
 import { BankDialog, RevealBank, SalaryRevisionDialog, StatusDialog } from "./panels";
 import { DeleteEmployeesDialog } from "../delete-dialog";
+import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
 export const metadata = { title: "Employee profile" };
 
@@ -38,6 +42,9 @@ export default async function EmployeeProfilePage({
   const sp = await searchParams;
   const currentMonth = toDateOnlyString(todayInPKT()).slice(0, 7);
   const month = sp.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month) && sp.month <= currentMonth ? sp.month : currentMonth;
+  const payHistory = (await canAccessEmployee(actor, "salary.read", id))
+    ? (await employeePayHistory(id)).map((h) => ({ id: h.id, label: h.label, netPay: Number(h.netPay), status: h.run.status, deductions: Number(h.deductions), earnings: Number(h.earnings) }))
+    : null;
   const attendance = await monthRegister(actor, id, Number(month.slice(0, 4)), Number(month.slice(5, 7))).catch(() => null);
   const profile = await getEmployeeProfile(actor, id).catch((err) => {
     if (err instanceof NotFoundError || err instanceof ForbiddenError) notFound();
@@ -74,7 +81,7 @@ export default async function EmployeeProfilePage({
         )}
       </div>
 
-      <Tabs defaultValue={sp.tab === "attendance" ? "attendance" : "overview"}>
+      <Tabs defaultValue={sp.tab === "attendance" || sp.tab === "payslips" ? sp.tab : "overview"}>
         <TabsList className="mb-4 w-full justify-start overflow-x-auto [&>button]:flex-none [&>button]:px-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {salary && <TabsTrigger value="salary">Salary</TabsTrigger>}
@@ -168,6 +175,8 @@ export default async function EmployeeProfilePage({
 
         {salary && (
           <TabsContent value="salary" className="grid gap-6">
+            <PrivacyGroup>
+            <div className="flex justify-end"><PrivacyToggle /></div>
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-4">
                 <div>
@@ -204,9 +213,9 @@ export default async function EmployeeProfilePage({
                       return (
                         <TableRow key={s.id}>
                           <TableCell>{formatDate(s.effectiveFrom)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatPKR(s.basicSalary)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatPKR(allowances)}</TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">{formatPKR(Number(s.basicSalary) + allowances)}</TableCell>
+                          <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(s.basicSalary)} /></TableCell>
+                          <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(allowances)} /></TableCell>
+                          <TableCell className="text-right font-medium tabular-nums"><PrivateAmount value={formatPKR(Number(s.basicSalary) + allowances)} /></TableCell>
                           <TableCell className="hidden text-muted-foreground sm:table-cell">{s.note ?? "—"}</TableCell>
                         </TableRow>
                       );
@@ -215,6 +224,7 @@ export default async function EmployeeProfilePage({
                 </Table>
               </Card>
             )}
+            </PrivacyGroup>
           </TabsContent>
         )}
 
@@ -271,7 +281,7 @@ export default async function EmployeeProfilePage({
           <EmptyState title="Leave balances" description="Leave management arrives in Phase 4." />
         </TabsContent>
         <TabsContent value="payslips">
-          <EmptyState title="Payroll history & payslips" description="Payroll and payslips arrive in Phases 3–4." />
+          {payHistory ? <PayslipList rows={payHistory} /> : <EmptyState title="Payslips" description="You do not have access to this employee's pay." />}
         </TabsContent>
       </Tabs>
     </>
@@ -282,11 +292,11 @@ function SalaryBreakdown({ basic, allowances }: { basic: string; allowances: { n
   const total = Number(basic) + allowances.reduce((s, a) => s + Number(a.amount), 0);
   return (
     <dl className="grid max-w-md gap-2 text-sm">
-      <div className="flex justify-between"><dt>Basic salary</dt><dd className="tabular-nums">{formatPKR(basic)}</dd></div>
+      <div className="flex justify-between"><dt>Basic salary</dt><dd className="tabular-nums"><PrivateAmount value={formatPKR(basic)} /></dd></div>
       {allowances.map((a, i) => (
-        <div key={i} className="flex justify-between text-muted-foreground"><dt>{a.name}</dt><dd className="tabular-nums">{formatPKR(a.amount)}</dd></div>
+        <div key={i} className="flex justify-between text-muted-foreground"><dt>{a.name}</dt><dd className="tabular-nums"><PrivateAmount value={formatPKR(a.amount)} /></dd></div>
       ))}
-      <div className="mt-1 flex justify-between border-t pt-2 font-semibold"><dt>Monthly gross</dt><dd className="tabular-nums">{formatPKR(total)}</dd></div>
+      <div className="mt-1 flex justify-between border-t pt-2 font-semibold"><dt>Monthly gross</dt><dd className="tabular-nums"><PrivateAmount value={formatPKR(total)} /></dd></div>
     </dl>
   );
 }

@@ -8,6 +8,7 @@ import { formatDateTime, formatPKR } from "@/lib/format";
 import { todayInPKT } from "@/lib/dates";
 import { PrepareForm } from "./prepare-form";
 import { PayrollStatusBadge } from "./status-badge";
+import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
 export const metadata = { title: "Payroll" };
 
@@ -40,6 +41,8 @@ export default async function PayrollPage() {
         </Card>
       )}
 
+      <PrivacyGroup>
+      {runs.length > 0 && <div className="mb-2 flex justify-end"><PrivacyToggle /></div>}
       {runs.length === 0 ? (
         <EmptyState title="No payroll yet" description="Prepare the first month to see each employee's calculated pay." />
       ) : (
@@ -58,7 +61,7 @@ export default async function PayrollPage() {
                   <TableCell><Link href={`/payroll/${r.id}`} className="font-medium hover:underline">{r.label}</Link></TableCell>
                   <TableCell><PayrollStatusBadge status={r.status} /></TableCell>
                   <TableCell className="text-right tabular-nums">{r.employees}</TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">{formatPKR(r.totalNet)}</TableCell>
+                  <TableCell className="text-right font-medium tabular-nums"><PrivateAmount value={formatPKR(r.totalNet)} /></TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{formatDateTime(r.calculatedAt)}</TableCell>
                 </TableRow>
               ))}
@@ -66,6 +69,7 @@ export default async function PayrollPage() {
           </Table>
         </Card>
       )}
+      </PrivacyGroup>
     </>
   );
 }

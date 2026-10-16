@@ -164,6 +164,14 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     },
     select: { employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true },
   });
+  // Approved leave (working days only): shown as LEAVE when there are no punches that day.
+  const leaveRows = await db.leaveRequest.findMany({
+    where: { employeeId: { in: employees.map((e) => e.id) }, status: "APPROVED", startDate: { lte: new Date(`${to}T00:00:00Z`) }, endDate: { gte: new Date(`${opts.from}T00:00:00Z`) } },
+    select: { employeeId: true, startDate: true, endDate: true },
+  });
+  const onLeave = (employeeId: string, date: string) =>
+    leaveRows.some((l) => l.employeeId === employeeId && toDateOnlyString(l.startDate) <= date && toDateOnlyString(l.endDate) >= date);
+
   const adjustments = new Map(adjustmentRows.map((a) => [`${a.employeeId}|${toDateOnlyString(a.workDate)}`, a]));
 
   const writes: Prisma.PrismaPromise<unknown>[] = [];
@@ -202,6 +210,11 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
         data = {
           ...result, ...(onlyCheckOut ? { firstIn: null, lastOut: adj!.checkOut } : {}), status: result.status as AttendanceStatus, isOffDay, isAdjusted: !!adj,
           shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
+        };
+      } else if (!isOffDay && onLeave(emp.id, date)) {
+        data = {
+          status: "LEAVE", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
+          isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
         };
       } else if (!isOffDay && date < today && syncedFrom && syncedThrough && date >= syncedFrom && date < syncedThrough) {
         data = {

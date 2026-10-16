@@ -10,7 +10,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  serverExternalPackages: ["@node-rs/argon2", "exceljs"],
+  serverExternalPackages: ["@node-rs/argon2", "exceljs", "@react-pdf/renderer"],
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
   },

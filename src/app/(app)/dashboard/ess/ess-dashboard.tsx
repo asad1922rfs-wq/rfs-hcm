@@ -11,6 +11,7 @@ import { initials } from "@/lib/utils";
 import { AttendanceFlagChart, AttendanceLegend, type ChartDay } from "./attendance-chart";
 import { DashboardFilters } from "./filters";
 import { RequestsCard } from "./requests-card";
+import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
 type Data = Awaited<ReturnType<typeof getEssDashboard>>;
 
@@ -140,13 +141,14 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
             showApprovals={showApprovals}
             requests={[
               { label: "Attendance correction requests", count: null },
-              { label: "Leave requests", count: null },
+              { label: `Leave requests (pending)`, count: data.leaveRequests?.pending ?? 0 },
+              { label: `Leave approved this year`, count: data.leaveRequests?.approved ?? 0 },
               { label: "Advance salary requests", count: null },
               { label: "Employee info requests", count: null },
             ]}
             approvals={[
               { label: "Attendance corrections", count: null },
-              { label: "Leave requests", count: null },
+              { label: "Leave requests", count: data.pendingApprovals ?? 0 },
             ]}
           />
         </Card>
@@ -154,9 +156,23 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
         <Card className="gap-0 py-0">
           <CardTitleBar icon={ListChecks} title="Leave summary" />
           <TableHead left="Title" right="Balance" />
-          <div className="flex flex-1 items-center justify-center px-4 py-10 text-center text-sm text-muted-foreground">
-            No leave types configured yet.
-          </div>
+          {data.leave && data.leave.length > 0 ? (
+            <dl className="max-h-72 overflow-y-auto">
+              {data.leave.map((b) => (
+                <div key={b.leaveTypeId} className="flex items-center justify-between border-t px-4 py-2.5 text-sm">
+                  <dt>{b.name}{!b.isPaid && <span className="text-xs text-muted-foreground"> (unpaid)</span>}</dt>
+                  <dd className="min-w-12 rounded bg-muted px-2 py-0.5 text-right tabular-nums" title={`${b.used} used${b.pending ? `, ${b.pending} pending` : ""}`}>
+                    {b.remaining !== null ? b.remaining.toFixed(2) : `${b.used} used`}
+                  </dd>
+                </div>
+              ))}
+              <div className="border-t px-4 py-2.5 text-right"><Link href="/leave" className="text-sm text-primary hover:underline">Request leave</Link></div>
+            </dl>
+          ) : (
+            <div className="flex flex-1 items-center justify-center px-4 py-10 text-center text-sm text-muted-foreground">
+              No leave types configured yet.
+            </div>
+          )}
         </Card>
 
         <Card className="gap-0 py-0">
@@ -187,7 +203,8 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
         </Card>
 
         <Card className="gap-0 py-0">
-          <CardTitleBar icon={ReceiptText} title="Employee payslip" />
+          <PrivacyGroup>
+          <CardTitleBar icon={ReceiptText} title="Employee payslip" action={<PrivacyToggle />} />
           <TableHead left="Payslip period" right="" />
           <ul>
             <li className="flex items-center justify-between gap-3 border-t px-4 py-2.5 text-sm">
@@ -205,15 +222,18 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
                       </DialogDescription>
                     </DialogHeader>
                     <dl className="grid gap-2 text-sm">
-                      <Row label={`Per-day rate (monthly salary ÷ ${s.payslip.daysInMonth} days)`} value={formatPKR(s.payslip.perDayRate, true)} muted />
+                      <Row label={`Per-day rate (monthly salary ÷ ${s.payslip.daysInMonth} days)`} value={<PrivateAmount value={formatPKR(s.payslip.perDayRate, true)} />} muted />
                       {s.payslip.lines.map((l, i) => (
-                        <Row key={i} label={l.label} value={`${l.kind === "DEDUCTION" ? "− " : ""}${formatPKR(l.amount)}`} />
+                        <Row key={i} label={l.label} value={<PrivateAmount value={`${l.kind === "DEDUCTION" ? "− " : ""}${formatPKR(l.amount)}`} />} />
                       ))}
                       <div className="flex justify-between border-t pt-2 font-semibold">
                         <dt>{s.payslip.status === "ESTIMATE" ? "Estimated net salary" : "Net salary"}</dt>
-                        <dd className="tabular-nums">{formatPKR(s.payslip.netPay)}</dd>
+                        <dd className="tabular-nums"><PrivateAmount value={formatPKR(s.payslip.netPay)} /></dd>
                       </div>
                     </dl>
+                    {s.payslip.itemId && (
+                      <a href={`/api/v1/payslips/${s.payslip.itemId}`} target="_blank" rel="noopener" className="text-sm font-medium text-primary hover:underline">Download payslip (PDF)</a>
+                    )}
                     {s.payslip.warnings.length > 0 && (
                       <ul className="grid gap-1 text-xs text-muted-foreground">{s.payslip.warnings.map((w) => <li key={w}>• {w}</li>)}</ul>
                     )}
@@ -226,18 +246,19 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
             {s.payHistory.filter((h) => h.label !== monthName).map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-3 border-t px-4 py-2.5 text-sm">
                 <span>{h.label}</span>
-                <span className="tabular-nums">{formatPKR(h.netPay)} <span className="text-xs text-muted-foreground">{h.status === "PAID" ? "paid" : "approved"}</span></span>
+                <a href={`/api/v1/payslips/${h.id}`} target="_blank" rel="noopener" className="tabular-nums text-primary hover:underline"><PrivateAmount value={formatPKR(h.netPay)} /> · PDF</a>
               </li>
             ))}
           </ul>
           {s.payHistory.length === 0 && <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No finalised payslips yet.</p>}
+          </PrivacyGroup>
         </Card>
       </div>
     </div>
   );
 }
 
-function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+function Row({ label, value, muted }: { label: string; value: React.ReactNode; muted?: boolean }) {
   return (
     <div className={muted ? "flex justify-between gap-4 text-muted-foreground" : "flex justify-between gap-4"}>
       <dt>{label}</dt>

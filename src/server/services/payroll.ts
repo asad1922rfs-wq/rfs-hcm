@@ -5,6 +5,7 @@ import { recordAudit } from "@/server/audit";
 import { AppError, ForbiddenError, NotFoundError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
 import { calculatePay, type AttendanceStatusCode } from "@/core/payroll/calculate";
+import { approvedLeaveDates } from "@/server/services/leave";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -17,12 +18,7 @@ const monthBounds = (year: number, month: number) => {
   return { start, end };
 };
 
-/** True when attendance for this date belongs to a payroll that is approved or paid (and so must not change). */
-export async function isPayrollLockedFor(date: string): Promise<boolean> {
-  const [y, m] = date.split("-").map(Number) as [number, number];
-  const run = await db.payrollRun.findUnique({ where: { year_month: { year: y, month: m } }, select: { status: true } });
-  return !!run && (run.status === "APPROVED" || run.status === "PAID");
-}
+export { isPayrollLockedFor } from "@/server/services/payroll-lock";
 
 // ───────────── Calculation ─────────────
 
@@ -46,6 +42,8 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
     },
   });
 
+  const leaves = await approvedLeaveDates(employees.map((e) => e.id), start, end);
+
   const existing = await db.payrollItem.findMany({
     where: { runId: run.id, ...(onlyEmployeeId ? { employeeId: onlyEmployeeId } : {}) },
     include: { adjustments: true },
@@ -66,6 +64,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
       days: new Map(e.attendanceDays.map((d) => [toDateOnlyString(d.workDate), d.status as AttendanceStatusCode])),
       adjustments: (prior?.adjustments ?? []).map((a) => ({ kind: a.kind, label: a.label, amount: Number(a.amount) })),
+      unpaidLeaveDates: new Set([...(leaves.get(e.id) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
     });
     const data = {
       employeeCode: e.employeeCode,

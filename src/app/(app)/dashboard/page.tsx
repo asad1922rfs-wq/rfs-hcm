@@ -5,6 +5,7 @@ import {
 import { can, requireActor, type Actor } from "@/server/auth/session";
 import { getDashboardData } from "@/server/services/dashboard";
 import { getEssDashboard } from "@/server/services/ess-dashboard";
+import { pendingLeaveCount } from "@/server/services/leave";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { cn, initials } from "@/lib/utils";
 import { HeadcountChart } from "./headcount-chart";
 import { EssDashboard } from "./ess/ess-dashboard";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { PrivateAmount } from "@/components/private-amount";
 
 export const metadata = { title: "Dashboard" };
 
@@ -64,6 +66,7 @@ function TabLink({ href, active, children }: { href: string; active: boolean; ch
 async function HrOverview({ actor }: { actor: Actor }) {
   const data = await getDashboardData(actor);
   const at = data.attendanceToday;
+  const pendingLeave = await pendingLeaveCount(actor);
   const pending = "Import or sync attendance to see this";
 
   return (
@@ -78,7 +81,7 @@ async function HrOverview({ actor }: { actor: Actor }) {
         <StatCard label="New this month" value={data.newThisMonth} hint="Joined since the 1st" icon={UserPlus} tone="info" />
         <StatCard label="Inactive / exited" value={data.inactive} icon={UserMinus} tone="warning" />
         {data.estimatedPayroll !== null ? (
-          <StatCard label="Estimated monthly payroll" value={formatPKR(data.estimatedPayroll)} hint="Basic + fixed allowances, before attendance" icon={Wallet} tone="success" />
+          <StatCard label="Estimated monthly payroll" value={<PrivateAmount value={formatPKR(data.estimatedPayroll)} />} hint="Basic + fixed allowances, before attendance" icon={Wallet} tone="success" />
         ) : (
           <StatCard label="Employment types" value={data.byEmploymentType.length} hint="Distinct types in use" icon={Briefcase} />
         )}
@@ -89,7 +92,7 @@ async function HrOverview({ actor }: { actor: Actor }) {
         <StatCard label="Late today" value={at ? at.late : "—"} hint={at ? undefined : pending} icon={Clock} tone="warning" />
         <StatCard label="Not checked in" value={at ? at.notCheckedIn : "—"} hint={at ? (data.shiftStartToday !== null ? `Shift starts ${formatMinuteOfDay(data.shiftStartToday)} today` : undefined) : pending} icon={Fingerprint} />
         <StatCard label="Absent / on leave" value={at ? at.absent + at.onLeave : "—"} hint={at ? "Confirmed after the shift" : pending} icon={CalendarX} tone="danger" />
-        <StatCard label="Pending approvals" value="—" hint="Leave & corrections — later phase" icon={FileClock} tone="info" />
+        <StatCard label="Pending leave approvals" value={pendingLeave} hint={pendingLeave ? "Review in Leave → Approvals" : "Nothing waiting"} icon={FileClock} tone="info" />
       </section>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

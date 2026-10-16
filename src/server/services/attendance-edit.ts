@@ -6,7 +6,7 @@ import { AppError, NotFoundError } from "@/server/errors";
 import { assertPermission, can, type Actor } from "@/server/auth/session";
 import { assertEmployeeAccess, scopedEmployeeWhere } from "@/server/auth/scope";
 import { recomputeAttendance } from "@/server/services/attendance";
-import { isPayrollLockedFor } from "@/server/services/payroll";
+import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { addDaysIso, instantAt, localMidnight, PKT_OFFSET_MIN, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Download, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, FileText, Users, Wallet } from "lucide-react";
 import { can, requirePagePermission } from "@/server/auth/session";
 import { getRun } from "@/server/services/payroll";
 import { NotFoundError } from "@/server/errors";
@@ -13,6 +13,7 @@ import { formatDateTime, formatPKR } from "@/lib/format";
 import { PayrollStatusBadge } from "../status-badge";
 import { WorkflowBar } from "./workflow-bar";
 import { ItemDialog, type ItemView } from "./item-dialog";
+import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
 export const metadata = { title: "Payroll" };
 
@@ -55,6 +56,9 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
           <div className="flex flex-wrap items-center gap-2">
             <PayrollStatusBadge status={run.status} />
             <Button asChild variant="outline"><a href={`/api/v1/payroll/${run.id}/export`}><Download className="size-4" /> Excel</a></Button>
+            {(run.status === "APPROVED" || run.status === "PAID") && can(actor, "payslip.read", "all") && (
+              <Button asChild><a href={`/api/v1/payroll/${run.id}/payslips`} target="_blank" rel="noopener"><FileText className="size-4" /> All payslips (PDF)</a></Button>
+            )}
           </div>
         }
       />
@@ -74,11 +78,13 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
         />
       </div>
 
+      <PrivacyGroup>
+      <div className="mb-2 flex justify-end"><PrivacyToggle /></div>
       <section className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Employees" value={items.length} icon={Users} />
-        <StatCard label="Gross earnings" value={formatPKR(totals.gross)} icon={Wallet} />
-        <StatCard label="Deductions" value={formatPKR(totals.deductions)} tone="danger" icon={Wallet} />
-        <StatCard label="Net payable" value={formatPKR(totals.net)} tone="success" icon={Wallet} />
+        <StatCard label="Gross earnings" value={<PrivateAmount value={formatPKR(totals.gross)} />} icon={Wallet} />
+        <StatCard label="Deductions" value={<PrivateAmount value={formatPKR(totals.deductions)} />} tone="danger" icon={Wallet} />
+        <StatCard label="Net payable" value={<PrivateAmount value={formatPKR(totals.net)} />} tone="success" icon={Wallet} />
       </section>
 
       <form className="mb-3 flex flex-wrap items-center gap-3" role="search">
@@ -112,19 +118,20 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
                   </span>
                   <span className="block text-xs text-muted-foreground">{i.employeeCode}{i.department ? ` · ${i.department}` : ""}</span>
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatPKR(i.grossSalary)}</TableCell>
+                <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(i.grossSalary)} /></TableCell>
                 <TableCell className="hidden md:table-cell text-right tabular-nums">{i.absentDays || "—"}</TableCell>
                 <TableCell className="hidden md:table-cell text-right tabular-nums">
                   {i.lateCount + i.missingPunchCount || "—"}{i.lateDeductionDays > 0 && <span className="text-xs text-muted-foreground"> → {i.lateDeductionDays}d</span>}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{i.deductions ? formatPKR(i.deductions) : "—"}</TableCell>
-                <TableCell className="text-right font-semibold tabular-nums">{formatPKR(i.netPay)}</TableCell>
-                <TableCell className="text-right"><ItemDialog runId={run.id} item={i} editable={editable} /></TableCell>
+                <TableCell className="text-right font-semibold tabular-nums"><PrivateAmount value={formatPKR(i.netPay)} /></TableCell>
+                <TableCell className="text-right"><ItemDialog runId={run.id} item={i} editable={editable} payslipReady={run.status === "APPROVED" || run.status === "PAID"} /></TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </Card>
+      </PrivacyGroup>
     </>
   );
 }
