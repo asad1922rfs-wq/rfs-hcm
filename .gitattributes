@@ -1,0 +1,5 @@
+# Keep LF line endings so scripts and configs work inside Linux containers (Hostinger VPS).
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.xlsx binary
