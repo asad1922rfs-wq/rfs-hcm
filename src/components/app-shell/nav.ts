@@ -29,7 +29,7 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
   {
     title: "Payroll",
     items: [
-      { href: "/payroll", label: "Payroll", icon: "payroll", permission: "payroll.prepare", scope: "all", soon: true },
+      { href: "/payroll", label: "Payroll", icon: "payroll", permission: "payroll.read", scope: "all" },
       { href: "/payslips", label: "Payslips", icon: "payslips", permission: "payslip.read", soon: true },
       { href: "/reports", label: "Reports", icon: "reports", permission: "report.read", scope: "team", soon: true },
     ],

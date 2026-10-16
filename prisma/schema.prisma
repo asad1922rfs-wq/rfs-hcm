@@ -143,6 +143,7 @@ model Employee {
   rawPunches        RawPunch[]
   attendanceDays    AttendanceDay[]
   attendanceAdjustments AttendanceAdjustment[]
+  payrollItems      PayrollItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -422,4 +423,89 @@ model AttendanceAdjustment {
   updatedAt   DateTime  @updatedAt
 
   @@unique([employeeId, workDate])
+}
+
+// ───────────────────────────── Payroll ─────────────────────────────
+
+enum PayrollStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PAID
+}
+
+/// One payroll per calendar month. Items are frozen snapshots: once APPROVED nothing in the run changes,
+/// whatever happens to attendance or salaries afterwards.
+model PayrollRun {
+  id            String        @id @default(cuid())
+  year          Int
+  month         Int
+  status        PayrollStatus @default(DRAFT)
+  preparedById  String
+  calculatedAt  DateTime      @default(now())
+  submittedById String?
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+  rejectedNote  String?
+  paidAt        DateTime?
+  items         PayrollItem[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([year, month])
+}
+
+model PayrollItem {
+  id                String              @id @default(cuid())
+  runId             String
+  run               PayrollRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId        String?
+  employee          Employee?           @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  // Snapshot of the employee at calculation time
+  employeeCode      String
+  fullName          String
+  department        String?
+  designation       String?
+  // Salary & attendance basis
+  basicSalary       Decimal             @db.Decimal(14, 2)
+  allowances        Json
+  grossSalary       Decimal             @db.Decimal(14, 2)
+  daysInMonth       Int
+  perDayRate        Decimal             @db.Decimal(14, 2)
+  employedDays      Int
+  presentDays       Int
+  absentDays        Int
+  lateCount         Int
+  missingPunchCount Int
+  lateDeductionDays Int
+  notSyncedDays     Int
+  // Result
+  earnings          Decimal             @db.Decimal(14, 2)
+  deductions        Decimal             @db.Decimal(14, 2)
+  netPay            Decimal             @db.Decimal(14, 2)
+  /// Explanation lines: { kind: "EARNING"|"DEDUCTION", code, label, amount }
+  lines             Json
+  warnings          String[]
+  adjustments       PayrollAdjustment[]
+
+  @@unique([runId, employeeId])
+  @@index([runId])
+}
+
+enum PayrollAdjustmentKind {
+  EARNING
+  DEDUCTION
+}
+
+/// Manual line added by HR before submission: bonus, advance recovery, other authorised deduction, arrears…
+model PayrollAdjustment {
+  id          String                @id @default(cuid())
+  itemId      String
+  item        PayrollItem           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  kind        PayrollAdjustmentKind
+  label       String
+  amount      Decimal               @db.Decimal(14, 2)
+  createdById String
+  createdAt   DateTime              @default(now())
 }

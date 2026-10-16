@@ -6,6 +6,7 @@ import { AppError, NotFoundError } from "@/server/errors";
 import { assertPermission, can, type Actor } from "@/server/auth/session";
 import { assertEmployeeAccess, scopedEmployeeWhere } from "@/server/auth/scope";
 import { recomputeAttendance } from "@/server/services/attendance";
+import { isPayrollLockedFor } from "@/server/services/payroll";
 import { addDaysIso, instantAt, localMidnight, PKT_OFFSET_MIN, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
@@ -31,6 +32,7 @@ export async function saveAttendanceAdjustment(
   const date = toDateOnlyString(parseDateOnly(input.date));
   const today = toDateOnlyString(todayInPKT());
   if (date > today) throw new AppError("You cannot set attendance for a future date.");
+  if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
   if (!input.checkIn && !input.checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
 
@@ -89,6 +91,7 @@ export async function removeAttendanceAdjustment(actor: Actor, employeeId: strin
   const workDate = new Date(`${date}T00:00:00Z`);
   const existing = await db.attendanceAdjustment.findUnique({ where: { employeeId_workDate: { employeeId, workDate } } });
   if (!existing) throw new NotFoundError("There is no manual change on that day.");
+  if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked.");
   await db.attendanceAdjustment.delete({ where: { id: existing.id } });
   await recomputeAttendance({ employeeIds: [employeeId], from: date, to: date });
   await recordAudit({

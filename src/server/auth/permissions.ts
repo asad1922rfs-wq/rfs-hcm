@@ -25,6 +25,7 @@ export const PERMISSIONS = {
   "leave.read": { group: "Leave", label: "View leave", scopes: SCOPES },
   "leave.request": { group: "Leave", label: "Request leave", scopes: ["self"] },
   "leave.approve": { group: "Leave", label: "Approve leave", scopes: ["team", "department", "all"] },
+  "payroll.read": { group: "Payroll", label: "View payroll runs and employee pay", scopes: ["all"] },
   "payroll.prepare": { group: "Payroll", label: "Prepare and calculate payroll", scopes: ["all"] },
   "payroll.approve": { group: "Payroll", label: "Approve and lock payroll", scopes: ["all"] },
   "payslip.read": { group: "Payroll", label: "View and download payslips", scopes: ["self", "all"] },
@@ -82,9 +83,17 @@ export const SYSTEM_ROLES = {
     permissions: [
       "employee.read:all", "employee.manage:all", "salary.read:all", "salary.manage:all",
       "profile.update:self", "attendance.read:all", "attendance.manage:all", "attendance.approve:all",
-      "leave.read:all", "leave.request:self", "leave.approve:all", "payroll.prepare:all",
+      "leave.read:all", "leave.request:self", "leave.approve:all", "payroll.read:all", "payroll.prepare:all",
       "payslip.read:all", "payslip.manage:all", "report.read:all", "settings.organisation:all",
       "user.manage:all", "audit.read:all", "bank.read:self",
+    ],
+  },
+  FINANCE: {
+    name: "Finance",
+    description: "Reviews and approves payroll, sees salaries and bank details for payment, payroll reports",
+    permissions: [
+      "employee.read:all", "salary.read:all", "bank.read:all", "attendance.read:all", "profile.update:self",
+      "leave.read:self", "leave.request:self", "payroll.read:all", "payroll.approve:all", "payslip.read:all", "report.read:all",
     ],
   },
   MANAGER: {

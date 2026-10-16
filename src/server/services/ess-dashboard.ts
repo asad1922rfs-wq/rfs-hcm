@@ -6,12 +6,20 @@ import { attendanceDaysForMonth, attendanceSyncStatus } from "@/server/services/
 import { salaryInForce } from "@/server/services/employees";
 import { buildMonthCalendar, summariseMonth, type DayRecord } from "@/core/attendance/month-calendar";
 import type { DayStatus } from "@/core/attendance/day-status";
-import { daysInMonth, nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
+import { localTime } from "@/server/services/attendance-edit";
+import { to12h } from "@/lib/format";
+import { calculatePay, type AttendanceStatusCode, type PayLine } from "@/core/payroll/calculate";
+import { employeePayHistory } from "@/server/services/payroll";
+import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
+
+/** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
+function clockLabel(instant: Date | null, workDate: string): string | null {
+  const t = localTime(instant, workDate);
+  return t ? `${to12h(t.time)}${t.nextDay ? " (next day)" : ""}` : null;
+}
 
 export type EssPeriod = "current" | "previous";
 
-/** Confirmed RFS rule: every 3 late arrivals in a month = 1 day's deduction. */
-const LATES_PER_DEDUCTION_DAY = 3;
 
 export async function getEssDashboard(actor: Actor, opts: { employeeId?: string; period?: EssPeriod }) {
   const today = todayInPKT();
@@ -52,7 +60,10 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
 
   const rows = await attendanceDaysForMonth(employee.id, year, month);
   const records = new Map<string, DayRecord>(
-    rows.map((r) => [toDateOnlyString(r.workDate), { status: r.status as DayStatus, workedMinutes: r.workedMinutes }]),
+    rows.map((r) => {
+      const date = toDateOnlyString(r.workDate);
+      return [date, { status: r.status as DayStatus, workedMinutes: r.workedMinutes, signIn: clockLabel(r.firstIn, date), signOut: clockLabel(r.lastOut, date) }];
+    }),
   );
   const calendar = buildMonthCalendar({
     year, month, today: todayIso, weekendDays: company?.weekendDays ?? [0, 6],
@@ -68,25 +79,28 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
   const anniversary = nextAnniversary(employee.joiningDate, today);
   const anniversaryYears = anniversary.getTime() === today.getTime() ? yearsBetween(employee.joiningDate, today) : 0;
 
-  // Expected salary — an estimate from confirmed rules only, shown until payroll is finalised.
-  let payslip: null | {
-    gross: number; perDay: number; daysInMonth: number; lateCount: number; lateDeductionDays: number; lateDeduction: number;
-    absentDays: number; absentDeduction: number; estimatedNet: number;
-  } = null;
+  // Pay for the month: the approved payroll if there is one, otherwise an estimate from the same payroll engine.
+  let payslip: null | { status: "ESTIMATE" | "APPROVED" | "PAID"; netPay: number; gross: number; perDayRate: number; daysInMonth: number; lines: PayLine[]; warnings: string[] } = null;
+  let payHistory: { id: string; label: string; netPay: number; status: string }[] = [];
   if (await canAccessEmployee(actor, "salary.read", employee.id)) {
-    const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
-    if (salary) {
-      const gross = Number(salary.basicSalary) + salary.allowances.reduce((s, a) => s + Number(a.amount), 0);
-      const dim = daysInMonth(year, month);
-      const perDay = gross / dim;
-      const lateDeductionDays = Math.floor(summary.late / LATES_PER_DEDUCTION_DAY);
-      const lateDeduction = Math.round(lateDeductionDays * perDay * 100) / 100;
-      // Confirmed RFS rule: each absent day deducts one full day. "Not synced" days are never deducted.
-      const absentDeduction = Math.round(summary.absent * perDay * 100) / 100;
+    const history = await employeePayHistory(employee.id);
+    payHistory = history.map((h) => ({ id: h.id, label: h.label, netPay: Number(h.netPay), status: h.run.status }));
+    const approved = history.find((h) => h.run.year === year && h.run.month === month);
+    if (approved) {
       payslip = {
-        gross, perDay, daysInMonth: dim, lateCount: summary.late, lateDeductionDays, lateDeduction,
-        absentDays: summary.absent, absentDeduction, estimatedNet: Math.max(0, gross - lateDeduction - absentDeduction),
+        status: approved.run.status === "PAID" ? "PAID" : "APPROVED", netPay: Number(approved.netPay), gross: Number(approved.grossSalary),
+        perDayRate: Number(approved.perDayRate), daysInMonth: approved.daysInMonth, lines: approved.lines as PayLine[], warnings: approved.warnings,
       };
+    } else {
+      const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
+      const r = calculatePay({
+        year, month, today: todayIso, joiningDate: toDateOnlyString(employee.joiningDate),
+        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: company?.weekendDays ?? [0, 6],
+        salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
+        days: new Map(rows.map((r) => [toDateOnlyString(r.workDate), r.status as AttendanceStatusCode])),
+        adjustments: [],
+      });
+      if (salary) payslip = { status: "ESTIMATE", netPay: r.netPay, gross: r.gross, perDayRate: r.perDayRate, daysInMonth: r.daysInMonth, lines: r.lines, warnings: r.warnings };
     }
   }
 
@@ -100,6 +114,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       summary,
       summaryUntil,
       payslip,
+      payHistory,
     },
     employeeOptions,
     canPickEmployee,

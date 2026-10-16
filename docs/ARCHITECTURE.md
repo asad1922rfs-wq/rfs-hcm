@@ -24,7 +24,14 @@ Defaults: currency PKR, timezone `Asia/Karachi` (UTC+5, no DST), A4 documents. E
 | Device | **ZKTeco MB460 Plus** (ZMM platform, ZKFinger VX10 / ZKFace VX7), serial TTQ52425003…, on **Ethernet**, supports **ADMS** | Integration: the device pushes over ADMS to the sync agent on the office PC (192.168.18.52:8081), which forwards over HTTPS. Verified with a simulated device; awaiting first real connection |
 | Existing software | ZKBioTime is installed on the office PC (`C:\ZKBioTime`, web UI on port 80) | Is BioTime in active use with the device? This decides whether to read from BioTime or the device |
 
-Still open: overtime, leave entitlements, approvers, FlowHCM data import, missing-punch handling in payroll.
+| Missing punch | **Counts as a late** towards the 3-lates = 1 day rule | Confirmed 2026-10-16 |
+| Overtime | **Not paid** | Confirmed 2026-10-16 |
+| Payroll approval | **HR prepares, Finance approves** (new Finance role); the submitter can never approve their own payroll | Confirmed 2026-10-16. Approval locks the month's attendance |
+| Friday timing | **3:00 PM – 12:00 AM** (weekday override on the General Shift) | Confirmed 2026-10-16 |
+
+Defaults applied without an explicit RFS rule (visible to HR in every payroll): joiners/leavers paid only for the calendar days employed; days with no machine data are never deducted, only flagged; amounts rounded to whole rupees.
+
+Still open: leave entitlements and approval chain.
 
 ---
 

@@ -55,6 +55,13 @@ describe("system roles", () => {
     expect(resolveScope(SYSTEM_ROLES.MANAGER.permissions, "bank.read")).toBe("self");
   });
 
+  it("Finance approves and pays payroll but cannot prepare it", () => {
+    expect(hasScope(SYSTEM_ROLES.FINANCE.permissions, "payroll.approve", "all")).toBe(true);
+    expect(hasScope(SYSTEM_ROLES.FINANCE.permissions, "payroll.read", "all")).toBe(true);
+    expect(resolveScope(SYSTEM_ROLES.FINANCE.permissions, "payroll.prepare")).toBeNull();
+    expect(resolveScope(SYSTEM_ROLES.FINANCE.permissions, "attendance.edit")).toBeNull();
+  });
+
   it("HR cannot approve payroll they prepare (maker-checker) by default", () => {
     expect(hasScope(SYSTEM_ROLES.HR_ADMIN.permissions, "payroll.prepare", "all")).toBe(true);
     expect(resolveScope(SYSTEM_ROLES.HR_ADMIN.permissions, "payroll.approve")).toBeNull();

@@ -4,7 +4,7 @@
 
 import type { DayStatus } from "./day-status";
 
-export type DayRecord = { status: DayStatus; workedMinutes: number | null };
+export type DayRecord = { status: DayStatus; workedMinutes: number | null; signIn?: string | null; signOut?: string | null };
 
 export type CalendarDay = {
   date: string; // YYYY-MM-DD
@@ -12,6 +12,9 @@ export type CalendarDay = {
   weekday: number; // 0 = Sunday
   status: DayStatus | null; // null = not employed on this date
   workedMinutes: number | null;
+  /** Display labels in Pakistan time, e.g. "2:05 PM" or "12:30 AM (next day)" */
+  signIn: string | null;
+  signOut: string | null;
 };
 
 export type MonthCalendarInput = {
@@ -36,18 +39,18 @@ export function buildMonthCalendar(input: MonthCalendarInput): CalendarDay[] {
     const base = { date, day: d, weekday };
 
     if (date < input.joiningDate || (input.exitDate && date > input.exitDate)) {
-      days.push({ ...base, status: null, workedMinutes: null });
+      days.push({ ...base, status: null, workedMinutes: null, signIn: null, signOut: null });
       continue;
     }
     const record = input.records.get(date);
     if (record) {
-      days.push({ ...base, status: record.status, workedMinutes: record.workedMinutes });
+      days.push({ ...base, status: record.status, workedMinutes: record.workedMinutes, signIn: record.signIn ?? null, signOut: record.signOut ?? null });
     } else if (input.weekendDays.includes(weekday)) {
-      days.push({ ...base, status: "OFF", workedMinutes: null });
+      days.push({ ...base, status: "OFF", workedMinutes: null, signIn: null, signOut: null });
     } else if (date >= input.today) {
-      days.push({ ...base, status: "SCHEDULED", workedMinutes: null });
+      days.push({ ...base, status: "SCHEDULED", workedMinutes: null, signIn: null, signOut: null });
     } else {
-      days.push({ ...base, status: "NOT_SYNCED", workedMinutes: null });
+      days.push({ ...base, status: "NOT_SYNCED", workedMinutes: null, signIn: null, signOut: null });
     }
   }
   return days;

@@ -60,6 +60,8 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
     label: `${String(d.day).padStart(2, "0")}-${MONTHS[data.month - 1]}`,
     status: d.status,
     workedMinutes: d.workedMinutes,
+    signIn: d.signIn,
+    signOut: d.signOut,
   }));
 
   return (
@@ -192,35 +194,43 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
               <span>{monthName}</span>
               {s.payslip ? (
                 <Dialog>
-                  <DialogTrigger className="text-primary hover:underline">Expected payslip</DialogTrigger>
-                  <DialogContent>
+                  <DialogTrigger className="text-primary hover:underline">{s.payslip.status === "ESTIMATE" ? "Expected payslip" : "View payslip"}</DialogTrigger>
+                  <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Estimated salary · {monthName}</DialogTitle>
+                      <DialogTitle>{s.payslip.status === "ESTIMATE" ? "Estimated salary" : "Salary"} · {monthName}</DialogTitle>
                       <DialogDescription>
-                        Estimate only. It updates as attendance is processed and becomes final when payroll is approved.
+                        {s.payslip.status === "ESTIMATE"
+                          ? "Estimate only — it updates as attendance is processed and becomes final when payroll is approved."
+                          : s.payslip.status === "PAID" ? "Approved and paid." : "Approved by Finance."}
                       </DialogDescription>
                     </DialogHeader>
                     <dl className="grid gap-2 text-sm">
-                      <Row label="Monthly salary (basic + allowances)" value={formatPKR(s.payslip.gross)} />
-                      <Row label={`Per-day rate (÷ ${s.payslip.daysInMonth} days)`} value={formatPKR(s.payslip.perDay, true)} muted />
-                      <Row label={`Absent: ${s.payslip.absentDays} day(s) × per-day rate`} value={`− ${formatPKR(s.payslip.absentDeduction)}`} />
-                      <Row label={`Late arrivals: ${s.payslip.lateCount} → ${s.payslip.lateDeductionDays} day(s) (every 3 lates = 1 day)`} value={`− ${formatPKR(s.payslip.lateDeduction)}`} />
+                      <Row label={`Per-day rate (monthly salary ÷ ${s.payslip.daysInMonth} days)`} value={formatPKR(s.payslip.perDayRate, true)} muted />
+                      {s.payslip.lines.map((l, i) => (
+                        <Row key={i} label={l.label} value={`${l.kind === "DEDUCTION" ? "− " : ""}${formatPKR(l.amount)}`} />
+                      ))}
                       <div className="flex justify-between border-t pt-2 font-semibold">
-                        <dt>Estimated net salary</dt>
-                        <dd className="tabular-nums">{formatPKR(s.payslip.estimatedNet)}</dd>
+                        <dt>{s.payslip.status === "ESTIMATE" ? "Estimated net salary" : "Net salary"}</dt>
+                        <dd className="tabular-nums">{formatPKR(s.payslip.netPay)}</dd>
                       </div>
                     </dl>
-                    <p className="text-xs text-muted-foreground">
-                      Not yet included: unpaid leave, overtime, bonuses and advances. Days not yet synced from the machine are not deducted.
-                    </p>
+                    {s.payslip.warnings.length > 0 && (
+                      <ul className="grid gap-1 text-xs text-muted-foreground">{s.payslip.warnings.map((w) => <li key={w}>• {w}</li>)}</ul>
+                    )}
                   </DialogContent>
                 </Dialog>
               ) : (
                 <span className="text-xs text-muted-foreground">No salary set</span>
               )}
             </li>
+            {s.payHistory.filter((h) => h.label !== monthName).map((h) => (
+              <li key={h.id} className="flex items-center justify-between gap-3 border-t px-4 py-2.5 text-sm">
+                <span>{h.label}</span>
+                <span className="tabular-nums">{formatPKR(h.netPay)} <span className="text-xs text-muted-foreground">{h.status === "PAID" ? "paid" : "approved"}</span></span>
+              </li>
+            ))}
           </ul>
-          <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No finalised payslips yet.</p>
+          {s.payHistory.length === 0 && <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No finalised payslips yet.</p>}
         </Card>
       </div>
     </div>
