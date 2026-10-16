@@ -5,7 +5,8 @@ import { Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Field, FormMessage } from "@/components/form";
+import { FormMessage } from "@/components/form";
+import { AdjustmentFields } from "./adjustment-fields";
 import type { RegisterRow } from "@/server/services/attendance-edit";
 import { to12h } from "@/lib/format";
 import { removeAdjustmentAction, saveAdjustmentAction } from "./edit-actions";
@@ -55,11 +56,10 @@ export function AdjustDialog({ row }: { row: RegisterRow }) {
         </dl>
         <form onSubmit={onSubmit} className="grid gap-4">
           {state && !state.ok && <FormMessage state={state} />}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Check-in" name="checkIn" type="time" defaultValue={row.adjustment?.checkIn ?? ""} errors={fe?.checkIn} hint="Empty = keep the machine's" />
-            <Field label="Check-out" name="checkOut" type="time" defaultValue={row.adjustment?.checkOut ?? ""} errors={fe?.checkOut} hint="Earlier than check-in = next day" />
-          </div>
-          <Field label="Reason" name="reason" required defaultValue={row.adjustment?.reason ?? ""} errors={fe?.reason} placeholder="e.g. Forgot to punch in; confirmed by manager" />
+          <AdjustmentFields
+            errors={fe}
+            defaults={row.adjustment ? { checkIn: row.adjustment.checkIn, checkOut: row.adjustment.checkOut, reason: row.adjustment.reason, category: row.adjustment.category, excused: row.adjustment.excused } : undefined}
+          />
           <div className="flex flex-wrap justify-between gap-2">
             {row.adjustment ? (
               <Button

@@ -24,65 +24,141 @@ export function localTime(instant: Date | null, workDate: string): { time: strin
 
 // ───────────── Write ─────────────
 
-export async function saveAttendanceAdjustment(
-  actor: Actor,
-  input: { employeeId: string; date: string; checkIn: string | null; checkOut: string | null; reason: string },
-) {
-  assertPermission(actor, "attendance.edit", "all");
-  const date = toDateOnlyString(parseDateOnly(input.date));
-  const today = toDateOnlyString(todayInPKT());
-  if (date > today) throw new AppError("You cannot set attendance for a future date.");
-  if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
-  if (!input.checkIn && !input.checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
-  if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
+export const ADJUSTMENT_CATEGORIES = ["WORK_FROM_HOME", "LOAD_SHEDDING", "OTHER"] as const;
+export type AdjustmentCategory = (typeof ADJUSTMENT_CATEGORIES)[number];
+export const CATEGORY_LABELS: Record<AdjustmentCategory, string> = {
+  WORK_FROM_HOME: "Work from home",
+  LOAD_SHEDDING: "Load shedding / early off",
+  OTHER: "Correction",
+};
 
-  const employee = await db.employee.findUnique({ where: { id: input.employeeId }, select: { id: true, fullName: true, employeeCode: true, joiningDate: true, exitDate: true } });
+export type AdjustmentInput = {
+  checkIn: string | null; // "HH:MM"
+  checkOut: string | null;
+  reason: string;
+  category: AdjustmentCategory;
+  /** Company-sanctioned: count the day as Present with no late/early. */
+  excused: boolean;
+};
+
+/** Checks shared by single and bulk edits. Returns the normalised work date. */
+async function validateAdjustment(actor: Actor, dateStr: string, input: AdjustmentInput, allowOneSided: boolean) {
+  assertPermission(actor, "attendance.edit", "all");
+  const date = toDateOnlyString(parseDateOnly(dateStr));
+  if (date > toDateOnlyString(todayInPKT())) throw new AppError("You cannot set attendance for a future date.");
+  if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
+  if (!allowOneSided && !input.checkIn && !input.checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
+  if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
+  return date;
+}
+
+/**
+ * Turn "HH:MM" inputs into instants on the work date. A check-out at or before the check-in (or, on its own,
+ * before 6 AM) falls on the next day. Times not given fall back to `fallback` (an existing manual change).
+ */
+function resolveTimes(date: string, input: Pick<AdjustmentInput, "checkIn" | "checkOut">, fallback?: { checkIn: Date | null; checkOut: Date | null }) {
+  const inMin = input.checkIn ? parseTimeOfDay(input.checkIn) : null;
+  const checkIn = inMin !== null ? instantAt(date, inMin) : (fallback?.checkIn ?? null);
+  let checkOut: Date | null = fallback?.checkOut ?? null;
+  if (input.checkOut) {
+    let outMin = parseTimeOfDay(input.checkOut);
+    const reference = checkIn ? Math.round((checkIn.getTime() - instantAt(date, 0).getTime()) / 60_000) : null;
+    if (reference !== null ? outMin <= reference : outMin < NEXT_DAY_CUTOFF_MIN) outMin += 1440;
+    checkOut = instantAt(date, outMin);
+  }
+  if (checkIn && checkOut) {
+    if (checkOut <= checkIn) throw new AppError("Check-out must be after check-in.");
+    if ((checkOut.getTime() - checkIn.getTime()) / 60_000 > MAX_DAY_MINUTES) throw new AppError("Check-in to check-out cannot be longer than 20 hours.");
+  }
+  if (!checkIn && !checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
+  return { checkIn, checkOut };
+}
+
+function snapshot(day: { status: string; firstIn: Date | null; lastOut: Date | null } | null, date: string) {
+  return {
+    date,
+    status: day?.status ?? null,
+    checkIn: localTime(day?.firstIn ?? null, date)?.time ?? null,
+    checkOut: localTime(day?.lastOut ?? null, date)?.time ?? null,
+  };
+}
+
+export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentInput & { employeeId: string; date: string }) {
+  const date = await validateAdjustment(actor, input.date, input, false);
+  const employee = await db.employee.findUnique({ where: { id: input.employeeId }, select: { id: true, joiningDate: true, exitDate: true } });
   if (!employee) throw new NotFoundError("Employee not found.");
   if (date < toDateOnlyString(employee.joiningDate)) throw new AppError("That date is before the employee's joining date.");
   if (employee.exitDate && date > toDateOnlyString(employee.exitDate)) throw new AppError("That date is after the employee's exit date.");
 
-  const inMin = input.checkIn ? parseTimeOfDay(input.checkIn) : null;
-  let outMin = input.checkOut ? parseTimeOfDay(input.checkOut) : null;
-  if (outMin !== null) {
-    if (inMin !== null ? outMin <= inMin : outMin < NEXT_DAY_CUTOFF_MIN) outMin += 1440;
-  }
-  if (inMin !== null && outMin !== null && outMin - inMin > MAX_DAY_MINUTES) throw new AppError("Check-in to check-out cannot be longer than 20 hours.");
-
-  const checkIn = inMin !== null ? instantAt(date, inMin) : null;
-  const checkOut = outMin !== null ? instantAt(date, outMin) : null;
+  const { checkIn, checkOut } = resolveTimes(date, input);
   const workDate = new Date(`${date}T00:00:00Z`);
-
-  const before = await db.attendanceDay.findUnique({ where: { employeeId_workDate: { employeeId: employee.id, workDate } } });
-  const previous = await db.attendanceAdjustment.findUnique({ where: { employeeId_workDate: { employeeId: employee.id, workDate } } });
-  await db.attendanceAdjustment.upsert({
-    where: { employeeId_workDate: { employeeId: employee.id, workDate } },
-    create: { employeeId: employee.id, workDate, checkIn, checkOut, reason: input.reason.trim(), createdById: actor.userId },
-    update: { checkIn, checkOut, reason: input.reason.trim(), createdById: actor.userId },
-  });
+  const key = { employeeId_workDate: { employeeId: employee.id, workDate } };
+  const before = await db.attendanceDay.findUnique({ where: key });
+  const data = { checkIn, checkOut, category: input.category, excused: input.excused, reason: input.reason.trim(), createdById: actor.userId };
+  await db.attendanceAdjustment.upsert({ where: key, create: { employeeId: employee.id, workDate, ...data }, update: data });
   await recomputeAttendance({ employeeIds: [employee.id], from: date, to: date });
-  const after = await db.attendanceDay.findUnique({ where: { employeeId_workDate: { employeeId: employee.id, workDate } } });
+  const after = await db.attendanceDay.findUnique({ where: key });
 
   await recordAudit({
-    actor,
-    action: "attendance.adjust",
-    entityType: "Employee",
-    entityId: employee.id,
-    before: {
-      date,
-      status: before?.status ?? null,
-      checkIn: localTime(before?.firstIn ?? null, date)?.time ?? null,
-      checkOut: localTime(before?.lastOut ?? null, date)?.time ?? null,
-      previousAdjustmentReason: previous?.reason ?? null,
-    },
-    after: {
-      date,
-      status: after?.status ?? null,
-      checkIn: localTime(after?.firstIn ?? null, date)?.time ?? null,
-      checkOut: localTime(after?.lastOut ?? null, date)?.time ?? null,
-      reason: input.reason.trim(),
-    },
+    actor, action: "attendance.adjust", entityType: "Employee", entityId: employee.id,
+    before: snapshot(before, date),
+    after: { ...snapshot(after, date), category: input.category, excused: input.excused, reason: input.reason.trim() },
   });
   return after;
+}
+
+/**
+ * Apply the same correction to many employees for one date (e.g. a work-from-home day or a load-shedding
+ * early off). Times left empty keep each employee's existing manual time (or the machine's).
+ * Employees that cannot be changed are skipped with a reason rather than failing the whole batch.
+ */
+export async function bulkSaveAttendanceAdjustments(actor: Actor, input: AdjustmentInput & { employeeIds: string[]; date: string }) {
+  const date = await validateAdjustment(actor, input.date, input, false);
+  const ids = [...new Set(input.employeeIds)];
+  if (ids.length === 0) throw new AppError("Select at least one employee.");
+  if (ids.length > 500) throw new AppError("Select at most 500 employees at a time.");
+  const workDate = new Date(`${date}T00:00:00Z`);
+
+  const [employees, existing, beforeDays] = await Promise.all([
+    db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, joiningDate: true, exitDate: true } }),
+    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate } }),
+    db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate } }),
+  ]);
+  const existingBy = new Map(existing.map((a) => [a.employeeId, a]));
+  const beforeBy = new Map(beforeDays.map((d) => [d.employeeId, d]));
+
+  const skipped: { name: string; reason: string }[] = [];
+  const updated: string[] = [];
+  for (const e of employees) {
+    if (date < toDateOnlyString(e.joiningDate)) { skipped.push({ name: e.fullName, reason: "joined after this date" }); continue; }
+    if (e.exitDate && date > toDateOnlyString(e.exitDate)) { skipped.push({ name: e.fullName, reason: "had left by this date" }); continue; }
+    let times;
+    try {
+      times = resolveTimes(date, input, existingBy.get(e.id));
+    } catch (err) {
+      skipped.push({ name: e.fullName, reason: err instanceof AppError ? err.message : "invalid times" });
+      continue;
+    }
+    const data = { ...times, category: input.category, excused: input.excused, reason: input.reason.trim(), createdById: actor.userId };
+    await db.attendanceAdjustment.upsert({
+      where: { employeeId_workDate: { employeeId: e.id, workDate } },
+      create: { employeeId: e.id, workDate, ...data },
+      update: data,
+    });
+    updated.push(e.id);
+  }
+  if (updated.length) await recomputeAttendance({ employeeIds: updated, from: date, to: date });
+
+  const afterDays = await db.attendanceDay.findMany({ where: { employeeId: { in: updated }, workDate } });
+  const afterBy = new Map(afterDays.map((d) => [d.employeeId, d]));
+  for (const id of updated) {
+    await recordAudit({
+      actor, action: "attendance.adjust_bulk", entityType: "Employee", entityId: id,
+      before: snapshot(beforeBy.get(id) ?? null, date),
+      after: { ...snapshot(afterBy.get(id) ?? null, date), category: input.category, excused: input.excused, reason: input.reason.trim(), batchSize: updated.length },
+    });
+  }
+  return { updated: updated.length, skipped };
 }
 
 export async function removeAttendanceAdjustment(actor: Actor, employeeId: string, dateStr: string) {
@@ -120,7 +196,7 @@ export type RegisterRow = {
   isOffDay: boolean;
   shiftLabel: string;
   machinePunches: { time: string; nextDay: boolean }[];
-  adjustment: { checkIn: string | null; checkOut: string | null; reason: string } | null;
+  adjustment: { checkIn: string | null; checkOut: string | null; reason: string; category: string; excused: boolean } | null;
 };
 
 type EmployeeForRegister = {
@@ -181,7 +257,7 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[]): Pro
         isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()),
         shiftLabel: rule ? `${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
         machinePunches: (punchesByDate.get(date) ?? []).map((p) => localTime(p, date)!),
-        adjustment: a ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason } : null,
+        adjustment: a ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused } : null,
       });
     }
   }

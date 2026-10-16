@@ -45,6 +45,17 @@ describe("manual adjustments", () => {
     expect(computeDay(d, eff, SHIFT, false)!.status).toBe("MISSING");
   });
 
+  it("a machine punch after the adjusted check-out is never used as the check-in", () => {
+    const eff = applyAdjustment([pkt("2026-10-14 23:25:00")], { checkIn: null, checkOut: pkt("2026-10-14 20:00:00") });
+    expect(eff.map((x) => x.toISOString())).toEqual([pkt("2026-10-14 20:00:00").toISOString()]);
+    expect(computeDay(d, eff, SHIFT, false)!.status).toBe("MISSING"); // becomes PRESENT only when the edit is excused
+  });
+
+  it("bulk early off keeps the real machine check-in", () => {
+    const eff = applyAdjustment([pkt("2026-10-14 14:10:00"), pkt("2026-10-14 23:17:00")], { checkIn: null, checkOut: pkt("2026-10-14 20:00:00") });
+    expect(computeDay(d, eff, SHIFT, false)).toMatchObject({ workedMinutes: 350, earlyLeaveMinutes: 180 });
+  });
+
   it("instantAt handles times after midnight", () => {
     expect(instantAt(d, 24 * 60 + 30).toISOString()).toBe(pkt("2026-10-15 00:30:00").toISOString());
   });

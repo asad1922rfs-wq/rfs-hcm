@@ -89,7 +89,9 @@ const MIN_SHIFT_FOR_CHECKOUT_MIN = 60;
  */
 export function applyAdjustment(machine: readonly Date[], adj: { checkIn: Date | null; checkOut: Date | null }): Date[] {
   const sorted = [...machine].sort((a, b) => a.getTime() - b.getTime());
-  const checkIn = adj.checkIn ?? sorted[0] ?? null;
+  // With an adjusted check-out, only machine punches well before it can be the check-in.
+  const inCandidates = adj.checkOut ? sorted.filter((p) => p.getTime() <= adj.checkOut!.getTime() - MIN_SHIFT_FOR_CHECKOUT_MIN * 60_000) : sorted;
+  const checkIn = adj.checkIn ?? inCandidates[0] ?? null;
   let checkOut = adj.checkOut;
   if (!checkOut && checkIn) {
     const later = sorted.filter((p) => p.getTime() >= checkIn.getTime() + MIN_SHIFT_FOR_CHECKOUT_MIN * 60_000);

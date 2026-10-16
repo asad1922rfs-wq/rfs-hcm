@@ -162,7 +162,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       employeeId: { in: employees.map((e) => e.id) },
       workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) },
     },
-    select: { employeeId: true, workDate: true, checkIn: true, checkOut: true },
+    select: { employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true },
   });
   const adjustments = new Map(adjustmentRows.map((a) => [`${a.employeeId}|${toDateOnlyString(a.workDate)}`, a]));
 
@@ -191,12 +191,16 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const machine = byDate.get(date) ?? [];
       const effective = adj ? applyAdjustment(machine, adj) : machine;
       // An adjusted day is never "in progress": the corrected times are taken as final.
-      const result = computeDay(date, effective, ruleForDate(shift, date), isOffDay, date === today && !adj);
+      let result = computeDay(date, effective, ruleForDate(shift, date), isOffDay, date === today && !adj);
+      // Company-sanctioned day (work from home, load-shedding early off): present, never late or early.
+      if (result && adj?.excused) result = { ...result, status: "PRESENT", lateMinutes: 0, earlyLeaveMinutes: 0 };
+      // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
+      const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 
       let data: Omit<Prisma.AttendanceDayUncheckedCreateInput, "employeeId" | "workDate"> | null = null;
       if (result) {
         data = {
-          ...result, status: result.status as AttendanceStatus, isOffDay, isAdjusted: !!adj,
+          ...result, ...(onlyCheckOut ? { firstIn: null, lastOut: adj!.checkOut } : {}), status: result.status as AttendanceStatus, isOffDay, isAdjusted: !!adj,
           shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
         };
       } else if (!isOffDay && date < today && syncedFrom && syncedThrough && date >= syncedFrom && date < syncedThrough) {
