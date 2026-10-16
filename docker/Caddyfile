@@ -1,0 +1,9 @@
+# Caddy obtains and renews the HTTPS certificate automatically once DNS for APP_DOMAIN points at this VPS.
+{$APP_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	reverse_proxy web:3000
+}

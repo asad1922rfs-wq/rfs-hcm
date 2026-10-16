@@ -1,0 +1,10 @@
+{
+  "serverUrl": "https://hr.example.com",
+  "agentId": "paste from RFS HCM → Biometric devices → Create agent",
+  "agentSecret": "rfsa_paste_secret_here",
+  "listenPort": 8081,
+  "listenHost": "0.0.0.0",
+  "allowedSerials": [],
+  "timezoneHours": 5,
+  "dataDir": "data"
+}

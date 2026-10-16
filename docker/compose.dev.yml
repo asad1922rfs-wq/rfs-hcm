@@ -1,0 +1,17 @@
+# Local development database only. Production compose lives in docker/compose.prod.yml.
+name: rfs-hcm-dev
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rfs
+      POSTGRES_PASSWORD: rfs_dev_password
+      POSTGRES_DB: rfs_hcm
+      TZ: UTC
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - rfs_hcm_pg:/var/lib/postgresql/data
+volumes:
+  rfs_hcm_pg:

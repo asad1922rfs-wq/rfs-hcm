@@ -1,0 +1,13 @@
+{
+  "name": "rfs-hcm-sync-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Receives ZKTeco ADMS (push) attendance on the office LAN and forwards it to RFS HCM over HTTPS",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts"
+  }
+}

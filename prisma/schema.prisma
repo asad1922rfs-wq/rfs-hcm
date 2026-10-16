@@ -1,0 +1,425 @@
+// RFS HCM â€” database schema
+// Conventions:
+//   * Instants are timestamptz (UTC). Business calendar dates (joining date, DOB, effective dates) are `@db.Date`.
+//   * Money is Decimal(14,2) in PKR. Never floats.
+//   * Sensitive fields ending in `Enc` hold AES-256-GCM ciphertext produced by src/server/crypto.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Company & organisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+model Company {
+  id          String   @id @default(cuid())
+  legalName   String
+  shortName   String
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  ntn         String?
+  logoPath    String?
+  timezone    String   @default("Asia/Karachi")
+  currency    String   @default("PKR")
+  /// Weekly off days, 0 = Sunday â€¦ 6 = Saturday
+  weekendDays Int[]    @default([0, 6])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Department {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  code        String?    @unique
+  description String?
+  isActive    Boolean    @default(true)
+  employees   Employee[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Designation {
+  id        String     @id @default(cuid())
+  title     String     @unique
+  isActive  Boolean    @default(true)
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+/// Work shift. Times are minutes after midnight in the company timezone; endMinute < startMinute means it crosses midnight.
+model Shift {
+  id           String     @id @default(cuid())
+  name         String     @unique
+  startMinute  Int
+  endMinute    Int
+  graceMinutes Int        @default(15)
+  isDefault    Boolean    @default(false)
+  isActive     Boolean    @default(true)
+  employees    Employee[]
+  dayOverrides ShiftDayOverride[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+/// Different timing on a specific weekday (e.g. Friday 3:00 PM – 12:00 AM). Grace falls back to the shift's.
+model ShiftDayOverride {
+  id           String @id @default(cuid())
+  shiftId      String
+  shift        Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  /// 0 = Sunday … 6 = Saturday
+  weekday      Int
+  startMinute  Int
+  endMinute    Int
+  graceMinutes Int?
+
+  @@unique([shiftId, weekday])
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Employees â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+enum EmploymentType {
+  PERMANENT
+  PROBATION
+  CONTRACT
+  INTERN
+  PART_TIME
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+  RESIGNED
+  TERMINATED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Employee {
+  id             String           @id @default(cuid())
+  employeeCode   String           @unique
+  fullName       String
+  fatherName     String?
+  maritalStatus  String?
+  grade          String?
+  photoPath      String?
+  email          String?          @unique
+  phone          String?
+  gender         Gender?
+  dateOfBirth    DateTime?        @db.Date
+  cnicEnc        String?
+  address        String?
+  joiningDate    DateTime         @db.Date
+  exitDate       DateTime?        @db.Date
+  employmentType EmploymentType   @default(PERMANENT)
+  status         EmploymentStatus @default(ACTIVE)
+  /// User ID enrolled on the biometric device (matches device punches to this employee)
+  deviceUserId   String?          @unique
+
+  departmentId  String?
+  department    Department?  @relation(fields: [departmentId], references: [id])
+  designationId String?
+  designation   Designation? @relation(fields: [designationId], references: [id])
+  shiftId       String?
+  shift         Shift?       @relation(fields: [shiftId], references: [id])
+  managerId     String?
+  manager       Employee?    @relation("ReportingLine", fields: [managerId], references: [id])
+  reports       Employee[]   @relation("ReportingLine")
+
+  salaryStructures  SalaryStructure[]
+  bankAccount       BankAccount?
+  emergencyContacts EmergencyContact[]
+  user              User?
+  rawPunches        RawPunch[]
+  attendanceDays    AttendanceDay[]
+  attendanceAdjustments AttendanceAdjustment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([departmentId])
+  @@index([managerId])
+  @@index([status])
+}
+
+/// Effective-dated salary. The structure in force on a date is the latest one with effectiveFrom <= that date.
+model SalaryStructure {
+  id            String            @id @default(cuid())
+  employeeId    String
+  employee      Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveFrom DateTime          @db.Date
+  basicSalary   Decimal           @db.Decimal(14, 2)
+  note          String?
+  allowances    SalaryAllowance[]
+  createdById   String?
+  createdAt     DateTime          @default(now())
+
+  @@unique([employeeId, effectiveFrom])
+}
+
+model SalaryAllowance {
+  id                String          @id @default(cuid())
+  salaryStructureId String
+  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+  name              String
+  amount            Decimal         @db.Decimal(14, 2)
+}
+
+model BankAccount {
+  id               String   @id @default(cuid())
+  employeeId       String   @unique
+  employee         Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  bankName         String
+  branch           String?
+  accountTitle     String
+  accountNumberEnc String
+  ibanEnc          String?
+  updatedAt        DateTime @updatedAt
+}
+
+model EmergencyContact {
+  id           String   @id @default(cuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  name         String
+  relationship String
+  phone        String
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Identity & access â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+model Role {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  /// Permission grants such as "employee.read:all" â€” see src/server/auth/permissions.ts
+  permissions String[]
+  isSystem    Boolean  @default(false)
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  /// Login email (optional â€” users can also sign in with their Employee ID)
+  email              String?   @unique
+  passwordHash       String
+  displayName        String
+  roleId             String
+  role               Role      @relation(fields: [roleId], references: [id])
+  employeeId         String?   @unique
+  employee           Employee? @relation(fields: [employeeId], references: [id])
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(true)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  passwordChangedAt  DateTime?
+  sessions           Session[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  /// SHA-256 of the session token; the raw token only ever lives in the user's cookie
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Append-only record of security-relevant and data-changing actions.
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorUserId String?
+  actorName   String?
+  action      String
+  entityType  String
+  entityId    String?
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([createdAt])
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Attendance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+enum PunchSource {
+  IMPORT
+  AGENT
+  MANUAL
+}
+
+/// Raw biometric punch exactly as received. Never updated or deleted; duplicates are rejected by the unique key.
+model RawPunch {
+  id            String       @id @default(cuid())
+  source        PunchSource
+  /// Device serial number, or "" when the source file does not include it
+  deviceSerial  String       @default("")
+  deviceUserId  String
+  /// Instant of the punch (device local time converted from Asia/Karachi to UTC)
+  punchedAt     DateTime
+  deviceLocal   String
+  punchState    String?
+  verifyMode    String?
+  employeeId    String?
+  employee      Employee?    @relation(fields: [employeeId], references: [id])
+  importId      String?
+  import        PunchImport? @relation(fields: [importId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@unique([deviceSerial, deviceUserId, punchedAt])
+  @@index([employeeId, punchedAt])
+  @@index([deviceUserId])
+  @@index([punchedAt])
+}
+
+model PunchImport {
+  id           String     @id @default(cuid())
+  fileName     String
+  format       String
+  uploadedById String
+  rowsRead     Int
+  inserted     Int
+  duplicates   Int
+  unmatched    Int
+  invalid      Int
+  firstPunchAt DateTime?
+  lastPunchAt  DateTime?
+  punches      RawPunch[]
+  createdAt    DateTime   @default(now())
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  EARLY
+  HALF_DAY
+  SHORT_DAY
+  ABSENT
+  LEAVE
+  MISSING
+}
+
+/// One processed attendance result per employee per work date, derived from raw punches.
+/// Recalculated whenever punches or rules change, until the payroll period containing it is locked (Phase 3).
+model AttendanceDay {
+  id                String           @id @default(cuid())
+  employeeId        String
+  employee          Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate          DateTime         @db.Date
+  status            AttendanceStatus
+  firstIn           DateTime?
+  lastOut           DateTime?
+  punchCount        Int              @default(0)
+  workedMinutes     Int?
+  lateMinutes       Int              @default(0)
+  earlyLeaveMinutes Int              @default(0)
+  isOffDay          Boolean          @default(false)
+  /// true when a manual adjustment changed check-in/check-out for this day
+  isAdjusted        Boolean          @default(false)
+  shiftId           String?
+  computedAt        DateTime         @default(now())
+
+  @@unique([employeeId, workDate])
+  @@index([workDate])
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Biometric devices & sync agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/// On-premise program that receives punches from devices on the office LAN and forwards them over HTTPS.
+model SyncAgent {
+  id          String             @id @default(cuid())
+  name        String
+  /// HMAC secret, encrypted with FIELD_ENCRYPTION_KEY (shown to the admin once at creation)
+  secretEnc   String
+  isActive    Boolean            @default(true)
+  version     String?
+  lastSeenAt  DateTime?
+  lastIp      String?
+  outboxCount Int?
+  devices     AttendanceDevice[]
+  commands    AgentCommand[]
+  createdAt   DateTime           @default(now())
+}
+
+model AttendanceDevice {
+  id           String     @id @default(cuid())
+  serialNumber String     @unique
+  name         String?
+  model        String?
+  firmware     String?
+  pushVersion  String?
+  agentId      String?
+  agent        SyncAgent? @relation(fields: [agentId], references: [id])
+  isActive     Boolean    @default(true)
+  lastSeenAt   DateTime?
+  lastPunchAt  DateTime?
+  createdAt    DateTime   @default(now())
+}
+
+enum AgentCommandStatus {
+  PENDING
+  SENT
+  DONE
+  FAILED
+}
+
+/// Work for an agent, e.g. ask a device to re-send attendance for a date range ("Sync now").
+model AgentCommand {
+  id           String             @id @default(cuid())
+  agentId      String
+  agent        SyncAgent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  deviceSerial String
+  type         String
+  payload      Json
+  status       AgentCommandStatus @default(PENDING)
+  result       String?
+  createdById  String?
+  createdAt    DateTime           @default(now())
+  sentAt       DateTime?
+  completedAt  DateTime?
+
+  @@index([agentId, status])
+}
+
+/// Manual correction of a work day's check-in and/or check-out by an authorised user. Raw punches are never
+/// changed; the attendance engine uses these times in place of the machine's.
+model AttendanceAdjustment {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate    DateTime  @db.Date
+  checkIn     DateTime?
+  checkOut    DateTime?
+  reason      String
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([employeeId, workDate])
+}
