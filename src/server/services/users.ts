@@ -7,6 +7,7 @@ import { AppError, ForbiddenError, NotFoundError } from "@/server/errors";
 import { assertPermission, revokeUserSessions, type Actor } from "@/server/auth/session";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { isValidGrant, SYSTEM_ROLES } from "@/server/auth/permissions";
+import { asStringArray } from "@/server/json-fields";
 
 const isSuperAdmin = (actor: Actor) => actor.roleKey === "SUPER_ADMIN";
 
@@ -14,7 +15,7 @@ const isSuperAdmin = (actor: Actor) => actor.roleKey === "SUPER_ADMIN";
 async function assertCanAssignRole(actor: Actor, roleId: string) {
   const role = await db.role.findUnique({ where: { id: roleId } });
   if (!role) throw new NotFoundError("Role not found.");
-  if ((role.key === "SUPER_ADMIN" || role.permissions.includes("*")) && !isSuperAdmin(actor)) {
+  if ((role.key === "SUPER_ADMIN" || asStringArray(role.permissions).includes("*")) && !isSuperAdmin(actor)) {
     throw new ForbiddenError("Only a Super Admin can assign the Super Admin role.");
   }
   return role;

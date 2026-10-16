@@ -4,17 +4,19 @@
 name: rfs-hcm
 services:
   db:
-    image: postgres:16-alpine
+    image: mariadb:11.8
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - dbdata:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       retries: 5
     # Not published to the host: only reachable by the app on the internal network.
@@ -28,10 +30,11 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_NAME}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY}
       APP_URL: https://${APP_DOMAIN}
       APP_TIMEZONE: Asia/Karachi
+      STORAGE_DIR: /app/storage
     volumes:
       - storage:/app/storage
 
@@ -50,16 +53,16 @@ services:
       - caddy_config:/config
 
   backup:
-    image: postgres:16-alpine
+    image: mariadb:11.8
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PGHOST: db
-      PGUSER: ${POSTGRES_USER}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGDATABASE: ${POSTGRES_DB}
+      DB_HOST: db
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
     volumes:
       - ./backup.sh:/backup.sh:ro
@@ -67,7 +70,7 @@ services:
     entrypoint: ["sh", "/backup.sh"]
 
 volumes:
-  pgdata:
+  dbdata:
   storage:
   caddy_data:
   caddy_config:

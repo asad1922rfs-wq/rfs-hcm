@@ -12,6 +12,7 @@ import { calculatePay, type AttendanceStatusCode, type PayLine } from "@/core/pa
 import { employeePayHistory } from "@/server/services/payroll";
 import { approvedLeaveDates, leaveBalances, pendingLeaveCount } from "@/server/services/leave";
 import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
+import { asStringArray, weekendOf } from "@/server/json-fields";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
 function clockLabel(instant: Date | null, workDate: string): string | null {
@@ -67,7 +68,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     }),
   );
   const calendar = buildMonthCalendar({
-    year, month, today: todayIso, weekendDays: company?.weekendDays ?? [0, 6],
+    year, month, today: todayIso, weekendDays: weekendOf(company),
     joiningDate: toDateOnlyString(employee.joiningDate),
     exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null,
     records,
@@ -91,13 +92,13 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       payslip = {
         itemId: approved.id,
         status: approved.run.status === "PAID" ? "PAID" : "APPROVED", netPay: Number(approved.netPay), gross: Number(approved.grossSalary),
-        perDayRate: Number(approved.perDayRate), daysInMonth: approved.daysInMonth, lines: approved.lines as PayLine[], warnings: approved.warnings,
+        perDayRate: Number(approved.perDayRate), daysInMonth: approved.daysInMonth, lines: approved.lines as PayLine[], warnings: asStringArray(approved.warnings),
       };
     } else {
       const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
       const r = calculatePay({
         year, month, today: todayIso, joiningDate: toDateOnlyString(employee.joiningDate),
-        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: company?.weekendDays ?? [0, 6],
+        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: weekendOf(company),
         salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
         days: new Map(rows.map((r) => [toDateOnlyString(r.workDate), r.status as AttendanceStatusCode])),
         adjustments: [],

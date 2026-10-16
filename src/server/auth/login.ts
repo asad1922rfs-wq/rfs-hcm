@@ -36,8 +36,8 @@ export async function attemptLogin(identifier: string, password: string, ip: str
   const user = await db.user.findFirst({
     where: {
       OR: [
-        { email: { equals: id, mode: "insensitive" } },
-        { employee: { employeeCode: { equals: id, mode: "insensitive" } } },
+        { email: { equals: id } },
+        { employee: { employeeCode: { equals: id } } },
       ],
     },
     include: { employee: { select: { status: true } } },

@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { randomToken, sha256 } from "@/server/crypto";
 import { ForbiddenError } from "@/server/errors";
 import { hasScope, resolveScope, type Permission, type Scope } from "./permissions";
+import { asStringArray } from "@/server/json-fields";
 
 export const SESSION_COOKIE = "rfs_session";
 /** Absolute session lifetime. */
@@ -90,7 +91,7 @@ export const getActor = cache(async (): Promise<Actor | null> => {
     email: user.email,
     roleKey: user.role.key,
     roleName: user.role.name,
-    grants: user.role.permissions,
+    grants: asStringArray(user.role.permissions),
     employeeId: user.employee?.id ?? null,
     departmentId: user.employee?.departmentId ?? null,
     mustChangePassword: user.mustChangePassword,

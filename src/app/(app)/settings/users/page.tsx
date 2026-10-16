@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import { CreateUserDialog, EditUserDialog, ResetPasswordDialog } from "./users-client";
 import { BulkLoginsDialog } from "./bulk-logins";
 import { appUrl } from "@/lib/env";
+import { asStringArray } from "@/server/json-fields";
 
 export const metadata = { title: "Users" };
 
@@ -17,7 +18,7 @@ export default async function UsersPage() {
   const [users, roles, employees] = await Promise.all([listUsers(), listRoles(), employeesWithoutAccount()]);
   // Only a Super Admin may hand out (or manage) Super Admin access.
   const isSuperAdmin = actor.roleKey === "SUPER_ADMIN";
-  const assignable = roles.filter((r) => isSuperAdmin || (r.key !== "SUPER_ADMIN" && !r.permissions.includes("*")));
+  const assignable = roles.filter((r) => isSuperAdmin || (r.key !== "SUPER_ADMIN" && !asStringArray(r.permissions).includes("*")));
   const now = Date.now();
 
   return (

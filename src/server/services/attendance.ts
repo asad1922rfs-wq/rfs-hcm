@@ -7,6 +7,7 @@ import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
+import { weekendOf } from "@/server/json-fields";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 /** Fallback when an employee has no shift and no default shift exists. */
@@ -143,7 +144,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     db.rawPunch.findFirst({ orderBy: { punchedAt: "desc" }, select: { punchedAt: true } }),
     db.rawPunch.findFirst({ orderBy: { punchedAt: "asc" }, select: { punchedAt: true } }),
   ]);
-  const weekendDays = company?.weekendDays ?? [0, 6];
+  const weekendDays = weekendOf(company);
   // Device data covers [syncedFrom, syncedThrough]; only inside that range can a day without punches be an absence.
   const syncedThrough = latestPunch ? toDateOnlyString(latestPunch.punchedAt) : null;
   const syncedFrom = earliestPunch ? toDateOnlyString(earliestPunch.punchedAt) : null;

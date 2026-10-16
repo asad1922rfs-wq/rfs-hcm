@@ -21,9 +21,9 @@ export async function globalSearchAction(query: string): Promise<SearchResult[]>
           scope,
           {
             OR: [
-              { fullName: { contains: q, mode: "insensitive" } },
-              { employeeCode: { contains: q, mode: "insensitive" } },
-              { email: { contains: q, mode: "insensitive" } },
+              { fullName: { contains: q } },
+              { employeeCode: { contains: q } },
+              { email: { contains: q } },
               { phone: { contains: q } },
               { deviceUserId: { equals: q } },
             ],

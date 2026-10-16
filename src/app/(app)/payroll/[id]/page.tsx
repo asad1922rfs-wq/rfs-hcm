@@ -14,6 +14,7 @@ import { PayrollStatusBadge } from "../status-badge";
 import { WorkflowBar } from "./workflow-bar";
 import { ItemDialog, type ItemView } from "./item-dialog";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
+import { asStringArray } from "@/server/json-fields";
 
 export const metadata = { title: "Payroll" };
 
@@ -31,7 +32,7 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
     grossSalary: Number(i.grossSalary), perDayRate: Number(i.perDayRate), daysInMonth: i.daysInMonth, employedDays: i.employedDays,
     presentDays: i.presentDays, absentDays: i.absentDays, lateCount: i.lateCount, missingPunchCount: i.missingPunchCount,
     lateDeductionDays: i.lateDeductionDays, notSyncedDays: i.notSyncedDays, earnings: Number(i.earnings), deductions: Number(i.deductions),
-    netPay: Number(i.netPay), lines: i.lines as ItemView["lines"], warnings: i.warnings,
+    netPay: Number(i.netPay), lines: i.lines as ItemView["lines"], warnings: asStringArray(i.warnings),
     adjustments: i.adjustments.map((a) => ({ id: a.id, kind: a.kind, label: a.label, amount: Number(a.amount) })),
   }));
   const q = sp.q?.trim().toLowerCase();

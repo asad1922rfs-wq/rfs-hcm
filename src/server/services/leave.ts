@@ -9,12 +9,13 @@ import { recomputeAttendance } from "@/server/services/attendance";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { balanceOf, countLeaveDays, leaveDaysWithin, type Balance } from "@/core/leave/days";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
+import { weekendOf } from "@/server/json-fields";
 
 const iso = (d: Date) => toDateOnlyString(d);
 const d0 = (s: string) => new Date(`${s}T00:00:00Z`);
 
 async function weekendDays() {
-  return (await db.company.findFirst({ select: { weekendDays: true } }))?.weekendDays ?? [0, 6];
+  return weekendOf(await db.company.findFirst({ select: { weekendDays: true } }));
 }
 
 // ───────────── Leave types ─────────────

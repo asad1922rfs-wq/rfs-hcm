@@ -1,6 +1,7 @@
-// RFS HCM â€” database schema
+// RFS HCM — database schema
+// Database: MySQL / MariaDB (Hostinger). List-like values are stored as JSON.
 // Conventions:
-//   * Instants are timestamptz (UTC). Business calendar dates (joining date, DOB, effective dates) are `@db.Date`.
+//   * Instants are stored as UTC. Business calendar dates (joining date, DOB, effective dates) are `@db.Date`.
 //   * Money is Decimal(14,2) in PKR. Never floats.
 //   * Sensitive fields ending in `Enc` hold AES-256-GCM ciphertext produced by src/server/crypto.ts.
 
@@ -9,7 +10,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -19,16 +20,16 @@ model Company {
   id          String   @id @default(cuid())
   legalName   String
   shortName   String
-  address     String?
+  address     String?  @db.VarChar(500)
   phone       String?
   email       String?
-  website     String?
+  website     String?  @db.VarChar(300)
   ntn         String?
   logoPath    String?
   timezone    String   @default("Asia/Karachi")
   currency    String   @default("PKR")
-  /// Weekly off days, 0 = Sunday â€¦ 6 = Saturday
-  weekendDays Int[]    @default([0, 6])
+  /// Weekly off days as a JSON array, 0 = Sunday … 6 = Saturday
+  weekendDays Json
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -37,7 +38,7 @@ model Department {
   id          String     @id @default(cuid())
   name        String     @unique
   code        String?    @unique
-  description String?
+  description String?    @db.VarChar(500)
   isActive    Boolean    @default(true)
   employees   Employee[]
   createdAt   DateTime   @default(now())
@@ -118,7 +119,7 @@ model Employee {
   gender         Gender?
   dateOfBirth    DateTime?        @db.Date
   cnicEnc        String?
-  address        String?
+  address        String?          @db.VarChar(500)
   joiningDate    DateTime         @db.Date
   exitDate       DateTime?        @db.Date
   employmentType EmploymentType   @default(PERMANENT)
@@ -161,7 +162,7 @@ model SalaryStructure {
   employee      Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   effectiveFrom DateTime          @db.Date
   basicSalary   Decimal           @db.Decimal(14, 2)
-  note          String?
+  note          String?           @db.VarChar(500)
   allowances    SalaryAllowance[]
   createdById   String?
   createdAt     DateTime          @default(now())
@@ -204,9 +205,9 @@ model Role {
   id          String   @id @default(cuid())
   key         String   @unique
   name        String
-  description String?
-  /// Permission grants such as "employee.read:all" â€” see src/server/auth/permissions.ts
-  permissions String[]
+  description String?  @db.VarChar(500)
+  /// JSON array of grants such as "employee.read:all" — see src/server/auth/permissions.ts
+  permissions Json
   isSystem    Boolean  @default(false)
   users       User[]
   createdAt   DateTime @default(now())
@@ -215,7 +216,7 @@ model Role {
 
 model User {
   id                 String    @id @default(cuid())
-  /// Login email (optional â€” users can also sign in with their Employee ID)
+  /// Login email (optional — users can also sign in with their Employee ID)
   email              String?   @unique
   passwordHash       String
   displayName        String
@@ -243,7 +244,7 @@ model Session {
   expiresAt  DateTime
   lastSeenAt DateTime @default(now())
   ip         String?
-  userAgent  String?
+  userAgent  String?  @db.VarChar(500)
   createdAt  DateTime @default(now())
 
   @@index([userId])
@@ -260,7 +261,7 @@ model AuditLog {
   before      Json?
   after       Json?
   ip          String?
-  userAgent   String?
+  userAgent   String?  @db.VarChar(500)
   createdAt   DateTime @default(now())
 
   @@index([entityType, entityId])
@@ -302,7 +303,7 @@ model RawPunch {
 
 model PunchImport {
   id           String     @id @default(cuid())
-  fileName     String
+  fileName     String     @db.VarChar(300)
   format       String
   uploadedById String
   rowsRead     Int
@@ -358,7 +359,7 @@ model SyncAgent {
   id          String             @id @default(cuid())
   name        String
   /// HMAC secret, encrypted with FIELD_ENCRYPTION_KEY (shown to the admin once at creation)
-  secretEnc   String
+  secretEnc   String             @db.Text
   isActive    Boolean            @default(true)
   version     String?
   lastSeenAt  DateTime?
@@ -400,7 +401,7 @@ model AgentCommand {
   type         String
   payload      Json
   status       AgentCommandStatus @default(PENDING)
-  result       String?
+  result       String?            @db.Text
   createdById  String?
   createdAt    DateTime           @default(now())
   sentAt       DateTime?
@@ -422,7 +423,7 @@ model AttendanceAdjustment {
   category    String    @default("OTHER")
   /// Company-sanctioned: the day counts as Present with no late/early (e.g. load-shedding early off)
   excused     Boolean   @default(false)
-  reason      String
+  reason      String    @db.VarChar(500)
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -452,7 +453,7 @@ model PayrollRun {
   submittedAt   DateTime?
   approvedById  String?
   approvedAt    DateTime?
-  rejectedNote  String?
+  rejectedNote  String?       @db.Text
   paidAt        DateTime?
   items         PayrollItem[]
   createdAt     DateTime      @default(now())
@@ -491,7 +492,8 @@ model PayrollItem {
   netPay            Decimal             @db.Decimal(14, 2)
   /// Explanation lines: { kind: "EARNING"|"DEDUCTION", code, label, amount }
   lines             Json
-  warnings          String[]
+  /// JSON array of strings
+  warnings          Json
   adjustments       PayrollAdjustment[]
 
   @@unique([runId, employeeId])
@@ -548,12 +550,12 @@ model LeaveRequest {
   endDate      DateTime    @db.Date
   /// Working days in the range (weekends excluded), fixed when the request is made
   days         Int
-  reason       String
+  reason       String      @db.VarChar(1000)
   status       LeaveStatus @default(PENDING)
   requestedById String
   decidedById  String?
   decidedAt    DateTime?
-  decisionNote String?
+  decisionNote String?     @db.VarChar(1000)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 

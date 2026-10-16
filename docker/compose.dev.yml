@@ -1,17 +1,17 @@
-# Local development database only. Production compose lives in docker/compose.prod.yml.
+# Local development database only — MariaDB 11, matching Hostinger's MySQL/MariaDB.
 name: rfs-hcm-dev
 services:
-  db:
-    image: postgres:16-alpine
+  mysql:
+    image: mariadb:11.8
     restart: unless-stopped
     environment:
-      POSTGRES_USER: rfs
-      POSTGRES_PASSWORD: rfs_dev_password
-      POSTGRES_DB: rfs_hcm
+      MARIADB_ROOT_PASSWORD: rfs_dev_root
+      MARIADB_DATABASE: rfs_hcm
       TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:3307:3306"
     volumes:
-      - rfs_hcm_pg:/var/lib/postgresql/data
+      - rfs_hcm_mysql:/var/lib/mysql
 volumes:
-  rfs_hcm_pg:
+  rfs_hcm_mysql:

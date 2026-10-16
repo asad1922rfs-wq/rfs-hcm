@@ -47,19 +47,20 @@ export async function getDashboardData(actor: Actor) {
   // Estimated monthly payroll = sum of salaries in force today. Only for people allowed to see all salaries.
   let estimatedPayroll: string | null = null;
   if (can(actor, "salary.read", "all")) {
-    const rows = await db.$queryRaw<{ total: Prisma.Decimal | null }[]>`
-      SELECT SUM(s."basicSalary" + COALESCE(a.total, 0)) AS total
-      FROM "Employee" e
-      JOIN LATERAL (
-        SELECT ss.id, ss."basicSalary" FROM "SalaryStructure" ss
-        WHERE ss."employeeId" = e.id AND ss."effectiveFrom" <= ${today}
-        ORDER BY ss."effectiveFrom" DESC LIMIT 1
-      ) s ON true
-      LEFT JOIN LATERAL (
-        SELECT SUM(sa.amount) AS total FROM "SalaryAllowance" sa WHERE sa."salaryStructureId" = s.id
-      ) a ON true
-      WHERE e.status = 'ACTIVE'`;
-    estimatedPayroll = (rows[0]?.total ?? new Prisma.Decimal(0)).toString();
+    // Latest salary in force per active employee (portable across MySQL/MariaDB — no LATERAL joins).
+    const structures = await db.salaryStructure.findMany({
+      where: { effectiveFrom: { lte: today }, employee: { status: "ACTIVE" } },
+      orderBy: { effectiveFrom: "desc" },
+      select: { employeeId: true, basicSalary: true, allowances: { select: { amount: true } } },
+    });
+    const seen = new Set<string>();
+    let total = new Prisma.Decimal(0);
+    for (const s of structures) {
+      if (seen.has(s.employeeId)) continue;
+      seen.add(s.employeeId);
+      total = total.add(s.basicSalary).add(s.allowances.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0)));
+    }
+    estimatedPayroll = total.toString();
   }
 
   // Today's attendance from processed punches. Absence is only known after the shift, so before that

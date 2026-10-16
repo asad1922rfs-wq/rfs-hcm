@@ -7,6 +7,7 @@ import { assertPermission, type Actor } from "@/server/auth/session";
 import { calculatePay, type AttendanceStatusCode } from "@/core/payroll/calculate";
 import { approvedLeaveDates } from "@/server/services/leave";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
+import { weekendOf } from "@/server/json-fields";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const monthName = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
@@ -60,7 +61,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       today,
       joiningDate: toDateOnlyString(e.joiningDate),
       exitDate: e.exitDate ? toDateOnlyString(e.exitDate) : null,
-      weekendDays: company?.weekendDays ?? [0, 6],
+      weekendDays: weekendOf(company),
       salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
       days: new Map(e.attendanceDays.map((d) => [toDateOnlyString(d.workDate), d.status as AttendanceStatusCode])),
       adjustments: (prior?.adjustments ?? []).map((a) => ({ kind: a.kind, label: a.label, amount: Number(a.amount) })),

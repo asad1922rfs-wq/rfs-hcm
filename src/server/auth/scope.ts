@@ -12,9 +12,9 @@ const NOTHING: Prisma.EmployeeWhereInput = { id: { in: [] } };
 export async function teamEmployeeIds(managerEmployeeId: string): Promise<string[]> {
   const rows = await db.$queryRaw<{ id: string }[]>`
     WITH RECURSIVE team AS (
-      SELECT id FROM "Employee" WHERE id = ${managerEmployeeId}
+      SELECT id FROM Employee WHERE id = ${managerEmployeeId}
       UNION
-      SELECT e.id FROM "Employee" e JOIN team t ON e."managerId" = t.id
+      SELECT e.id FROM Employee e JOIN team t ON e.managerId = t.id
     )
     SELECT id FROM team`;
   return rows.map((r) => r.id);

@@ -10,6 +10,7 @@ import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { addDaysIso, instantAt, localMidnight, PKT_OFFSET_MIN, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
+import { weekendOf } from "@/server/json-fields";
 
 const MAX_DAY_MINUTES = 20 * 60;
 /** A lone check-out before this time is taken as after midnight (e.g. 00:30 on a 2 PM–11 PM shift). */
@@ -221,7 +222,7 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[]): Pro
     db.company.findFirst({ select: { weekendDays: true } }),
     db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true } }),
   ]);
-  const weekend = company?.weekendDays ?? [0, 6];
+  const weekend = weekendOf(company);
   const key = (id: string, d: string) => `${id}|${d}`;
   const dayMap = new Map(days.map((d) => [key(d.employeeId, toDateOnlyString(d.workDate)), d]));
   const adjMap = new Map(adjustments.map((a) => [key(a.employeeId, toDateOnlyString(a.workDate)), a]));
@@ -281,7 +282,7 @@ export async function dailyRegister(actor: Actor, date: string, departmentId?: s
       AND: [
         scope,
         departmentId ? { departmentId } : {},
-        q ? { OR: [{ fullName: { contains: q, mode: "insensitive" } }, { employeeCode: { contains: q, mode: "insensitive" } }] } : {},
+        q ? { OR: [{ fullName: { contains: q } }, { employeeCode: { contains: q } }] } : {},
         { joiningDate: { lte: workDate } },
         { OR: [{ exitDate: null }, { exitDate: { gte: workDate } }] },
         { OR: [{ status: "ACTIVE" }, { exitDate: { not: null } }] },

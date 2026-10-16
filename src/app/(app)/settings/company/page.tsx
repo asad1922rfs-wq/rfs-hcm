@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/common";
 import { CompanyForm } from "./company-form";
 import { LogoForm } from "./logo-form";
 import { logoUrl } from "@/server/services/branding";
+import { weekendOf } from "@/server/json-fields";
 
 export const metadata = { title: "Company settings" };
 
@@ -23,7 +24,7 @@ export default async function CompanySettingsPage() {
           email: company.email ?? "",
           website: company.website ?? "",
           ntn: company.ntn ?? "",
-          weekendDays: company.weekendDays,
+          weekendDays: weekendOf(company),
           timezone: company.timezone,
           currency: company.currency,
         }}

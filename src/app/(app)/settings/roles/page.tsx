@@ -3,6 +3,7 @@ import { listRoles } from "@/server/services/users";
 import { PERMISSIONS } from "@/server/auth/permissions";
 import { PageHeader } from "@/components/common";
 import { RoleEditor, type PermissionRow } from "./role-editor";
+import { asStringArray } from "@/server/json-fields";
 
 export const metadata = { title: "Roles & permissions" };
 
@@ -23,7 +24,7 @@ export default async function RolesPage() {
             key={r.id}
             readOnly={r.key === "SUPER_ADMIN"}
             permissions={permissions}
-            role={{ id: r.id, name: r.name, description: r.description, permissions: r.permissions, isSystem: r.isSystem, userCount: r._count.users }}
+            role={{ id: r.id, name: r.name, description: r.description, permissions: asStringArray(r.permissions), isSystem: r.isSystem, userCount: r._count.users }}
           />
         ))}
       </div>

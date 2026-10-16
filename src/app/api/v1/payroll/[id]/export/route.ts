@@ -5,6 +5,7 @@ import { db } from "@/server/db";
 import { decryptField } from "@/server/crypto";
 import { recordAudit } from "@/server/audit";
 import { monthName } from "@/server/services/payroll";
+import { asStringArray } from "@/server/json-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       employed: i.employedDays, present: i.presentDays, absent: i.absentDays, late: i.lateCount, missing: i.missingPunchCount,
       lateDays: i.lateDeductionDays, earnings: Number(i.earnings), deductions: Number(i.deductions), net: Number(i.netPay),
       ...(withBank && b ? { bank: b.bankName, title: b.accountTitle, account: decryptField(b.accountNumberEnc), iban: b.ibanEnc ? decryptField(b.ibanEnc) : "" } : {}),
-      warnings: i.warnings.join("; "),
+      warnings: asStringArray(i.warnings).join("; "),
     });
   }
   const total = ws.addRow({ name: "TOTAL", earnings: { formula: `SUM(L2:L${run.items.length + 1})` }, deductions: { formula: `SUM(M2:M${run.items.length + 1})` }, net: { formula: `SUM(N2:N${run.items.length + 1})` } });

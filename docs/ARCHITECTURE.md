@@ -13,7 +13,7 @@ Defaults: currency PKR, timezone `Asia/Karachi` (UTC+5, no DST), A4 documents. E
 
 | Topic | Decision | Notes / still to confirm |
 |---|---|---|
-| Hosting | **Hostinger VPS** (Node.js), Docker Compose: web + worker + PostgreSQL + Caddy (automatic HTTPS) | The device stays on the office LAN, so the **local sync agent is required** |
+| Hosting | **Hostinger Node.js web hosting** (rfstech.online) with a Hostinger **MySQL/MariaDB** database; Docker + MariaDB VPS stack kept as an alternative | Switched from PostgreSQL to MySQL/MariaDB on 2026-10-17 to run on the existing hosting. The device stays on the office LAN, so the **local sync agent is required** |
 | Payroll period | Calendar month (1st – last day); **salary paid between the 5th and 10th of the following month** | Confirm this interpretation of "next month 5 – 10" |
 | Per-day rate | Monthly salary ÷ **number of calendar days in that month** (28/29/30/31) | Confirm: basic only or basic + allowances? |
 | Weekly off | **Saturday and Sunday** | |
@@ -71,7 +71,7 @@ This keeps operations simple for an internal tool, and the modules can still be 
                       │           • SSE stream for live dashboard                                │
                       │                         │                                                │
                       │                         ▼                                                │
-                      │                 PostgreSQL 16  ◄──── apps/worker (Node)                  │
+                      │                 MySQL/MariaDB  ◄──── apps/worker (Node)                  │
                       │                 (+ pg-boss job queue,   • attendance recompute           │
                       │                    LISTEN/NOTIFY)        • payroll calculation           │
                       │                                          • PDF / Excel generation        │
@@ -113,7 +113,7 @@ tests/               unit/integration/E2E
 |---|---|---|
 | Web/UI | Next.js 15 (App Router), TypeScript strict, Tailwind, shadcn/ui | As requested |
 | API | Versioned REST route handlers (`/api/v1`), Zod-validated input/output | The sync agent and any future mobile app need a stable API. Server Actions only call the same service layer. |
-| DB | PostgreSQL 16 + Prisma | As requested |
+| DB | MySQL / MariaDB 11 + Prisma (originally PostgreSQL 16) | Matches Hostinger web hosting; list fields stored as JSON |
 | Jobs | **pg-boss** (queue stored in Postgres) | Avoids running Redis; retries and scheduling are built in |
 | Auth | In-house session auth: Argon2id password hashing, random session tokens stored hashed (SHA-256) in the DB, httpOnly + Secure + SameSite cookies | Small and fully auditable. Sessions can be revoked server-side; login is rate-limited and locks after repeated failures. TOTP 2FA for admins can be added later. |
 | PDF | @react-pdf/renderer, server-side | No headless Chrome in the container; deterministic A4 output |
