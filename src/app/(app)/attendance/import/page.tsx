@@ -16,7 +16,7 @@ export default async function AttendancePage() {
     <>
       <PageHeader
         title="Import attendance"
-        description="Bring biometric punches into RFS HCM. The automatic office sync agent replaces manual imports in Phase 2."
+        description="Bring biometric punches into RFS HCM from a file. Normally the office sync agent sends punches automatically; use this only for old or missing data."
       />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">

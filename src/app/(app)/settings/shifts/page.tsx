@@ -32,7 +32,7 @@ export default async function ShiftsPage() {
     <>
       <PageHeader
         title="Shifts"
-        description="Office timings used for attendance. Late, half-day and overtime rules are configured with attendance policies (Phase 2)."
+        description="Office timings used for attendance, including day-specific timings such as Friday. Late is counted after the grace period."
         actions={<RecordDialog title="Add shift" trigger="Add shift" triggerVariant="default" action={saveShiftAction} fields={shiftFields()} />}
       />
       <Card className="py-0">

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { monthRegister } from "@/server/services/attendance-edit";
 import { employeePayHistory } from "@/server/services/payroll";
+import { leaveBalances, myLeaveRequests } from "@/server/services/leave";
 import { canAccessEmployee } from "@/server/auth/scope";
 import { PayslipList } from "../../payslips/payslip-list";
 import { RegisterTable } from "../../attendance/register-table";
@@ -44,6 +45,9 @@ export default async function EmployeeProfilePage({
   const month = sp.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month) && sp.month <= currentMonth ? sp.month : currentMonth;
   const payHistory = (await canAccessEmployee(actor, "salary.read", id))
     ? (await employeePayHistory(id)).map((h) => ({ id: h.id, label: h.label, netPay: Number(h.netPay), status: h.run.status, deductions: Number(h.deductions), earnings: Number(h.earnings) }))
+    : null;
+  const leave = (await canAccessEmployee(actor, "leave.read", id))
+    ? await Promise.all([leaveBalances(id, Number(currentMonth.slice(0, 4))), myLeaveRequests(id)]).then(([balances, requests]) => ({ balances, requests: requests.slice(0, 10) }))
     : null;
   const attendance = await monthRegister(actor, id, Number(month.slice(0, 4)), Number(month.slice(5, 7))).catch(() => null);
   const profile = await getEmployeeProfile(actor, id).catch((err) => {
@@ -278,7 +282,77 @@ export default async function EmployeeProfilePage({
           )}
         </TabsContent>
         <TabsContent value="leave">
-          <EmptyState title="Leave balances" description="Leave management arrives in Phase 4." />
+          {!leave ? (
+            <EmptyState title="Leave" description="You do not have access to this employee's leave." />
+          ) : (
+            <div className="grid gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Leave balances {currentMonth.slice(0, 4)}</CardTitle>
+                  <CardDescription>Working days; pending requests are reserved until decided.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {leave.balances.length === 0 ? (
+                    <EmptyState title="No leave types yet" description="Add them in Settings → Leave types." />
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Leave type</TableHead>
+                          <TableHead className="text-right">Entitlement</TableHead>
+                          <TableHead className="text-right">Used</TableHead>
+                          <TableHead className="text-right">Pending</TableHead>
+                          <TableHead className="text-right">Remaining</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {leave.balances.map((b) => (
+                          <TableRow key={b.leaveTypeId}>
+                            <TableCell>{b.name}{!b.isPaid && <span className="ml-1 text-xs text-muted-foreground">(unpaid)</span>}</TableCell>
+                            <TableCell className="text-right tabular-nums">{b.entitlement ?? "No limit"}</TableCell>
+                            <TableCell className="text-right tabular-nums">{b.used}</TableCell>
+                            <TableCell className="text-right tabular-nums">{b.pending}</TableCell>
+                            <TableCell className="text-right font-medium tabular-nums">{b.remaining ?? "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Recent leave requests</CardTitle></CardHeader>
+                <CardContent>
+                  {leave.requests.length === 0 ? (
+                    <EmptyState title="No leave requests" />
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Dates</TableHead>
+                          <TableHead className="text-right">Days</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="hidden md:table-cell">Reason</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {leave.requests.map((r) => (
+                          <TableRow key={r.id}>
+                            <TableCell>{r.leaveType.name}</TableCell>
+                            <TableCell className="whitespace-nowrap">{formatDate(r.startDate)}{r.endDate.getTime() !== r.startDate.getTime() ? ` – ${formatDate(r.endDate)}` : ""}</TableCell>
+                            <TableCell className="text-right tabular-nums">{r.days}</TableCell>
+                            <TableCell><StatusBadge status={r.status} /></TableCell>
+                            <TableCell className="hidden max-w-xs truncate md:table-cell text-muted-foreground">{r.reason}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
         <TabsContent value="payslips">
           {payHistory ? <PayslipList rows={payHistory} /> : <EmptyState title="Payslips" description="You do not have access to this employee's pay." />}
