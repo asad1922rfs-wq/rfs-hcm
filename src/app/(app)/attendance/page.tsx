@@ -31,15 +31,15 @@ export default async function AttendanceRegisterPage({ searchParams }: { searchP
   const counts = rows.reduce<Record<string, number>>((m, r) => ((m[r.status ?? "NONE"] = (m[r.status ?? "NONE"] ?? 0) + 1), m), {});
   const weekday = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
 
-  return (
-    <>
-      <PageHeader
-        title="Attendance"
-        description={canEdit ? "Daily register. Use Edit to correct a check-in or check-out — every change is logged." : "Daily register"}
-        actions={can(actor, "attendance.manage", "all") && <Button asChild variant="outline"><Link href="/attendance/import"><Upload /> Import log</Link></Button>}
-      />
+  const summary = (
+    <p className="mb-3 text-sm text-muted-foreground">
+      <span className="font-medium text-foreground">{weekday}</span> · {rows.length} employees ·{" "}
+      {["PRESENT", "LATE", "EARLY", "MISSING", "ABSENT"].filter((s) => counts[s]).map((s) => `${counts[s]} ${s.toLowerCase()}`).join(" · ") || "no attendance yet"}
+    </p>
+  );
 
-      <form className="mb-4 flex flex-wrap items-center gap-2" role="search">
+  const filters = (
+      <form className="flex flex-wrap items-center gap-2" role="search">
         <Button asChild variant="outline" size="icon" aria-label="Previous day"><Link href={qs(addDaysIso(date, -1))}><ChevronLeft /></Link></Button>
         <Input type="date" name="date" defaultValue={date} max={today} className="w-44" aria-label="Date" />
         {date < today && <Button asChild variant="outline" size="icon" aria-label="Next day"><Link href={qs(addDaysIso(date, 1))}><ChevronRight /></Link></Button>}
@@ -54,13 +54,25 @@ export default async function AttendanceRegisterPage({ searchParams }: { searchP
         <Button type="submit" variant="secondary">Show</Button>
         {date !== today && <Button asChild variant="ghost"><Link href="/attendance">Today</Link></Button>}
       </form>
+  );
 
-      <p className="mb-3 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">{weekday}</span> · {rows.length} employees ·{" "}
-        {["PRESENT", "LATE", "EARLY", "MISSING", "ABSENT"].filter((s) => counts[s]).map((s) => `${counts[s]} ${s.toLowerCase()}`).join(" · ") || "no attendance yet"}
-      </p>
+  return (
+    <>
+      <PageHeader
+        title="Attendance"
+        description={canEdit ? "Daily register. Use Edit to correct a check-in or check-out — every change is logged." : "Daily register"}
+        actions={can(actor, "attendance.manage", "all") && <Button asChild variant="outline"><Link href="/attendance/import"><Upload /> Import log</Link></Button>}
+      />
 
-      {rows.length === 0 ? <EmptyState title={sp.q ? `No employee matches “${sp.q}”` : "No employees for this date"} /> : <RegisterTable rows={rows} canEdit={canEdit} mode="daily" />}
+      {rows.length === 0 ? (
+        <>
+          <div className="mb-4">{filters}</div>
+          {summary}
+          <EmptyState title={sp.q ? `No employee matches “${sp.q}”` : "No employees for this date"} />
+        </>
+      ) : (
+        <RegisterTable rows={rows} canEdit={canEdit} mode="daily" toolbar={filters} summary={summary} today={today} />
+      )}
     </>
   );
 }

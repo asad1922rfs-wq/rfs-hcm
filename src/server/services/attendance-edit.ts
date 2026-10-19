@@ -38,17 +38,19 @@ export type AdjustmentInput = {
   checkOut: string | null;
   reason: string;
   category: AdjustmentCategory;
-  /** Company-sanctioned: count the day as Present with no late/early. */
+  /** Company-sanctioned: the edited time is not counted late/early (both blank: the whole day is Present). */
   excused: boolean;
 };
 
 /** Checks shared by single and bulk edits. Returns the normalised work date. */
-async function validateAdjustment(actor: Actor, dateStr: string, input: AdjustmentInput, allowOneSided: boolean) {
+async function validateAdjustment(actor: Actor, dateStr: string, input: AdjustmentInput) {
   assertPermission(actor, "attendance.edit", "all");
   const date = toDateOnlyString(parseDateOnly(dateStr));
   if (date > toDateOnlyString(todayInPKT())) throw new AppError("You cannot set attendance for a future date.");
   if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
-  if (!allowOneSided && !input.checkIn && !input.checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
+  if (!input.checkIn && !input.checkOut && !input.excused) {
+    throw new AppError("Enter a check-in or check-out time, or tick Excuse to count the day as present with the machine's times.");
+  }
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
   return date;
 }
@@ -56,17 +58,16 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
 /**
  * Turn "HH:MM" inputs into instants on the work date. A check-out at or before the check-in falls on the next
  * day. A check-out given on its own falls on the next day when it is before the shift start (12:00 on a
- * 3 PM–12 AM shift means midnight, not noon). Times not given fall back to `fallback` (an existing manual change).
+ * 3 PM–12 AM shift means midnight, not noon). A time not given stays empty, so the machine punch is used.
  */
 function resolveTimes(
   date: string,
   input: Pick<AdjustmentInput, "checkIn" | "checkOut">,
   shiftStartMin: number | null,
-  fallback?: { checkIn: Date | null; checkOut: Date | null },
 ) {
   const inMin = input.checkIn ? parseTimeOfDay(input.checkIn) : null;
-  const checkIn = inMin !== null ? instantAt(date, inMin) : (fallback?.checkIn ?? null);
-  let checkOut: Date | null = fallback?.checkOut ?? null;
+  const checkIn = inMin !== null ? instantAt(date, inMin) : null;
+  let checkOut: Date | null = null;
   if (input.checkOut) {
     let outMin = parseTimeOfDay(input.checkOut);
     const reference = checkIn ? Math.round((checkIn.getTime() - instantAt(date, 0).getTime()) / 60_000) : null;
@@ -78,7 +79,6 @@ function resolveTimes(
     if (checkOut <= checkIn) throw new AppError("Check-out must be after check-in.");
     if ((checkOut.getTime() - checkIn.getTime()) / 60_000 > MAX_DAY_MINUTES) throw new AppError("Check-in to check-out cannot be longer than 20 hours.");
   }
-  if (!checkIn && !checkOut) throw new AppError("Enter a check-in time, a check-out time, or both.");
   return { checkIn, checkOut };
 }
 
@@ -102,7 +102,7 @@ function shiftStartFor(shift: ShiftWithOverrides | null, date: string): number |
 }
 
 export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentInput & { employeeId: string; date: string }) {
-  const date = await validateAdjustment(actor, input.date, input, false);
+  const date = await validateAdjustment(actor, input.date, input);
   const employee = await db.employee.findUnique({
     where: { id: input.employeeId },
     select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
@@ -131,26 +131,24 @@ export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentIn
 
 /**
  * Apply the same correction to many employees for one date (e.g. a work-from-home day or a load-shedding
- * early off). Times left empty keep each employee's existing manual time (or the machine's).
+ * early off). Times left empty use each employee's machine punch.
  * Employees that cannot be changed are skipped with a reason rather than failing the whole batch.
  */
 export async function bulkSaveAttendanceAdjustments(actor: Actor, input: AdjustmentInput & { employeeIds: string[]; date: string }) {
-  const date = await validateAdjustment(actor, input.date, input, false);
+  const date = await validateAdjustment(actor, input.date, input);
   const ids = [...new Set(input.employeeIds)];
   if (ids.length === 0) throw new AppError("Select at least one employee.");
   if (ids.length > 500) throw new AppError("Select at most 500 employees at a time.");
   const workDate = new Date(`${date}T00:00:00Z`);
 
-  const [employees, existing, beforeDays] = await Promise.all([
+  const [employees, beforeDays] = await Promise.all([
     db.employee.findMany({
       where: { id: { in: ids } },
       select: { id: true, fullName: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
     }),
-    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate } }),
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate } }),
   ]);
   const fallbackShift = await defaultShift();
-  const existingBy = new Map(existing.map((a) => [a.employeeId, a]));
   const beforeBy = new Map(beforeDays.map((d) => [d.employeeId, d]));
 
   const skipped: { name: string; reason: string }[] = [];
@@ -160,7 +158,8 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     if (e.exitDate && date > toDateOnlyString(e.exitDate)) { skipped.push({ name: e.fullName, reason: "had left by this date" }); continue; }
     let times;
     try {
-      times = resolveTimes(date, input, shiftStartFor(e.shift ?? fallbackShift, date), existingBy.get(e.id));
+      // A time left empty means "use the machine punch", even where an earlier manual change set one.
+      times = resolveTimes(date, input, shiftStartFor(e.shift ?? fallbackShift, date));
     } catch (err) {
       skipped.push({ name: e.fullName, reason: err instanceof AppError ? err.message : "invalid times" });
       continue;

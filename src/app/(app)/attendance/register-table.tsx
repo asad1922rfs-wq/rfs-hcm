@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DAY_STATUSES, type DayStatus } from "@/core/attendance/day-status";
@@ -10,7 +11,7 @@ import { formatHoursMinutes } from "@/core/attendance/month-calendar";
 import type { RegisterRow } from "@/server/services/attendance-edit";
 import { to12h } from "@/lib/format";
 import { AdjustDialog } from "./adjust-dialog";
-import { BulkAdjustBar } from "./bulk-adjust";
+import { BulkAdjustButton } from "./bulk-adjust";
 
 const show = (t: { time: string; nextDay: boolean } | null) => (t ? <>{to12h(t.time)}{t.nextDay && <sup className="ml-0.5 text-[10px] text-muted-foreground">+1</sup>}</> : "—");
 
@@ -32,7 +33,18 @@ function StatusPill({ row }: { row: RegisterRow }) {
  * Attendance rows with optional editing. `mode` decides whether the first column is the employee (daily register,
  * with multi-select for bulk edits) or the date (one employee's month).
  */
-export function RegisterTable({ rows, canEdit, mode }: { rows: RegisterRow[]; canEdit: boolean; mode: "daily" | "monthly" }) {
+export function RegisterTable({
+  rows, canEdit, mode, toolbar, summary, today,
+}: {
+  rows: RegisterRow[];
+  canEdit: boolean;
+  mode: "daily" | "monthly";
+  /** Filters shown on the left of the top bar (daily register); the Bulk edit button sits on the right. */
+  toolbar?: ReactNode;
+  /** Shown between the top bar and the table. */
+  summary?: ReactNode;
+  today?: string;
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectable = canEdit && mode === "daily";
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.employeeId));
@@ -41,13 +53,24 @@ export function RegisterTable({ rows, canEdit, mode }: { rows: RegisterRow[]; ca
 
   return (
     <>
-      {selectable && date && (
-        <BulkAdjustBar
-          date={date}
-          employees={rows.filter((r) => selected.has(r.employeeId)).map((r) => ({ id: r.employeeId, name: r.fullName }))}
-          onClear={() => setSelected(new Set())}
-        />
+      {(toolbar || (selectable && date)) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {toolbar}
+          {selectable && date && (
+            <div className="ml-auto flex items-center gap-2">
+              {selected.size > 0 && <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear selection</Button>}
+              <BulkAdjustButton
+                date={date}
+                today={today ?? date}
+                employees={rows.filter((r) => selected.size === 0 || selected.has(r.employeeId)).map((r) => ({ id: r.employeeId, name: r.fullName }))}
+                selectedCount={selected.size}
+                onDone={() => setSelected(new Set())}
+              />
+            </div>
+          )}
+        </div>
       )}
+      {summary}
       <Card className="py-0">
         <Table>
           <TableHeader>

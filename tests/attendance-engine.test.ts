@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAdjustment, computeDay, dedupePunches, instantAt, ruleForDate, workDateOf } from "@/core/attendance/engine";
+import { applyAdjustment, computeDay, dedupePunches, excuseAdjusted, instantAt, ruleForDate, workDateOf } from "@/core/attendance/engine";
 import { parsePunchFile } from "@/core/attendance/punch-parser";
 
 const SHIFT = { startMinute: 14 * 60, endMinute: 23 * 60, graceMinutes: 15 }; // RFS: 2 PM – 11 PM
@@ -166,5 +166,36 @@ describe("parsePunchFile", () => {
     const r = parsePunchFile("Foo,Bar\n1,2\n", now);
     expect(r.punches).toHaveLength(0);
     expect(r.errors[0]).toMatch(/user ID/);
+  });
+});
+
+describe("excused adjustments", () => {
+  const d = "2026-10-09";
+  const FRIDAY = { startMinute: 15 * 60, endMinute: 24 * 60, graceMinutes: 15 }; // 3 PM – 12 AM
+  const machine = [pkt("2026-10-09 15:20:00")];
+
+  it("only a check-out edited: a late machine check-in still counts as late", () => {
+    const adj = { checkIn: null, checkOut: pkt("2026-10-10 00:15:00") };
+    const day = computeDay(d, applyAdjustment(machine, adj), FRIDAY, false)!;
+    expect(excuseAdjusted(day, adj, FRIDAY)).toMatchObject({ status: "LATE", lateMinutes: 20, earlyLeaveMinutes: 0 });
+  });
+
+  it("an early check-out is excused when the check-out was edited", () => {
+    const adj = { checkIn: null, checkOut: pkt("2026-10-09 21:00:00") };
+    const day = computeDay(d, applyAdjustment([pkt("2026-10-09 15:05:00")], adj), FRIDAY, false)!;
+    expect(day.status).toBe("EARLY");
+    expect(excuseAdjusted(day, adj, FRIDAY)).toMatchObject({ status: "PRESENT", earlyLeaveMinutes: 0 });
+  });
+
+  it("an edited check-in is never late", () => {
+    const adj = { checkIn: pkt("2026-10-09 16:00:00"), checkOut: pkt("2026-10-10 00:00:00") };
+    const day = computeDay(d, applyAdjustment([], adj), FRIDAY, false)!;
+    expect(excuseAdjusted(day, adj, FRIDAY)).toMatchObject({ status: "PRESENT", lateMinutes: 0 });
+  });
+
+  it("no times edited: the whole day is present", () => {
+    const adj = { checkIn: null, checkOut: null };
+    const day = computeDay(d, applyAdjustment(machine, adj), FRIDAY, false)!;
+    expect(excuseAdjusted(day, adj, FRIDAY).status).toBe("PRESENT");
   });
 });

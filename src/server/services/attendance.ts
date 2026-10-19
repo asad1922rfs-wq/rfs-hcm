@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { recordAudit } from "@/server/audit";
 import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
-import { addDaysIso, applyAdjustment, computeDay, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
+import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
@@ -207,9 +207,10 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const machine = byDate.get(date) ?? [];
       const effective = adj ? applyAdjustment(machine, adj) : machine;
       // An adjusted day is never "in progress": the corrected times are taken as final.
-      let result = computeDay(date, effective, ruleForDate(shift, date), isOffDay, date === today && !adj);
-      // Company-sanctioned day (work from home, load-shedding early off): present, never late or early.
-      if (result && adj?.excused) result = { ...result, status: "PRESENT", lateMinutes: 0, earlyLeaveMinutes: 0 };
+      const rule = ruleForDate(shift, date);
+      let result = computeDay(date, effective, rule, isOffDay, date === today && !adj);
+      // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
+      if (result && adj?.excused && !isOffDay) result = excuseAdjusted(result, adj, rule);
       // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 

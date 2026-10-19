@@ -39,12 +39,12 @@ export async function saveAdjustmentAction(employeeId: string, date: string, _pr
 
 export async function bulkAdjustmentAction(
   employeeIds: string[],
-  date: string,
   _prev: ActionResult<{ updated: number; skipped: { name: string; reason: string }[] }> | null,
   fd: FormData,
 ): Promise<ActionResult<{ updated: number; skipped: { name: string; reason: string }[] }>> {
   return runAction(async () => {
     const ids = z.array(z.string().min(1).max(40)).max(500).parse(employeeIds);
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date.").parse(fd.get("date"));
     const result = await bulkSaveAttendanceAdjustments(await requireActor(), { employeeIds: ids, date, ...parse(fd) });
     refresh(ids);
     return { ok: true, data: result, message: `Updated ${result.updated} employee${result.updated === 1 ? "" : "s"}.` };

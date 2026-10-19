@@ -100,6 +100,23 @@ export function applyAdjustment(machine: readonly Date[], adj: { checkIn: Date |
   return [checkIn, checkOut].filter((d): d is Date => d !== null);
 }
 
+/**
+ * Company-approved change (work from home, load-shedding early off): excuse only what was edited. An adjusted
+ * check-in is never late, an adjusted check-out is never early; a late arrival on the machine still counts when
+ * only the check-out was changed. With neither time changed, the whole day counts as Present.
+ */
+export function excuseAdjusted(result: DayResult, adj: { checkIn: Date | null; checkOut: Date | null }, shift: ShiftRule): DayResult {
+  const wholeDay = !adj.checkIn && !adj.checkOut;
+  const lateMinutes = wholeDay || adj.checkIn ? 0 : result.lateMinutes;
+  const earlyLeaveMinutes = wholeDay || adj.checkOut ? 0 : result.earlyLeaveMinutes;
+  const status: DayResult["status"] = wholeDay
+    ? "PRESENT"
+    : lateMinutes > shift.graceMinutes ? "LATE"
+    : result.status === "MISSING" ? "MISSING"
+    : earlyLeaveMinutes > 0 ? "EARLY" : "PRESENT";
+  return { ...result, status, lateMinutes, earlyLeaveMinutes };
+}
+
 /** Drop punches within DUPLICATE_WINDOW_MIN of the previously kept punch. */
 export function dedupePunches(punches: readonly Date[]): Date[] {
   const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());

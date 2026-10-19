@@ -12,11 +12,11 @@ const CATEGORIES = [
 
 /** Shared fields for single and bulk attendance edits. */
 export function AdjustmentFields({
-  defaults, errors, bulk,
+  defaults, errors,
 }: {
   defaults?: { checkIn?: string | null; checkOut?: string | null; reason?: string; category?: string; excused?: boolean };
   errors?: Record<string, string[] | undefined>;
-  bulk?: boolean;
+
 }) {
   const [category, setCategory] = useState(defaults?.category ?? "OTHER");
   const [excused, setExcused] = useState(defaults?.excused ?? false);
@@ -37,14 +37,14 @@ export function AdjustmentFields({
         </NativeSelect>
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Check-in" name="checkIn" type="time" defaultValue={defaults?.checkIn ?? ""} errors={errors?.checkIn} hint={bulk ? "Empty = keep each person's own" : "Empty = keep the machine's"} />
-        <Field label="Check-out" name="checkOut" type="time" defaultValue={defaults?.checkOut ?? ""} errors={errors?.checkOut} hint="Earlier than check-in = next day" />
+        <Field label="Check-in" name="checkIn" type="time" defaultValue={defaults?.checkIn ?? ""} errors={errors?.checkIn} hint="Empty = machine's check-in" />
+        <Field label="Check-out" name="checkOut" type="time" defaultValue={defaults?.checkOut ?? ""} errors={errors?.checkOut} hint="Empty = machine's check-out · 12:00 = midnight" />
       </div>
       <Label className="flex items-start gap-2 font-normal">
         <input type="checkbox" name="excused" checked={excused} onChange={(e) => setExcused(e.target.checked)} className="mt-0.5" />
         <span>
-          Excuse late / early — count as a normal Present day
-          <span className="block text-xs text-muted-foreground">Use for company-approved situations like work from home or load-shedding early off.</span>
+          Excuse the times I change
+          <span className="block text-xs text-muted-foreground">A changed check-in is not late; a changed check-out is not early. Machine times still count (e.g. a late machine check-in stays Late). Leave both times empty to count the whole day as Present.</span>
         </span>
       </Label>
       <Field
