@@ -26,7 +26,7 @@ export default async function AttendanceRegisterPage({ searchParams }: { searchP
   const sp = await searchParams;
   const today = toDateOnlyString(todayInPKT());
   const date = validDate(sp.date, today);
-  const [{ rows, canEdit }, departments] = await Promise.all([dailyRegister(actor, date, sp.department || undefined, sp.q), listDepartments()]);
+  const [{ rows, canEdit, trackedFrom }, departments] = await Promise.all([dailyRegister(actor, date, sp.department || undefined, sp.q), listDepartments()]);
   const qs = (d: string) => `/attendance?${new URLSearchParams({ date: d, ...(sp.department ? { department: sp.department } : {}), ...(sp.q ? { q: sp.q } : {}) })}`;
   const counts = rows.reduce<Record<string, number>>((m, r) => ((m[r.status ?? "NONE"] = (m[r.status ?? "NONE"] ?? 0) + 1), m), {});
   const weekday = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
@@ -68,7 +68,13 @@ export default async function AttendanceRegisterPage({ searchParams }: { searchP
         <>
           <div className="mb-4">{filters}</div>
           {summary}
-          <EmptyState title={sp.q ? `No employee matches “${sp.q}”` : "No employees for this date"} />
+          <EmptyState
+            title={
+              trackedFrom && date < trackedFrom
+                ? `Attendance is tracked in this system from ${new Date(`${trackedFrom}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}`
+                : sp.q ? `No employee matches “${sp.q}”` : "No employees for this date"
+            }
+          />
         </>
       ) : (
         <RegisterTable rows={rows} canEdit={canEdit} mode="daily" toolbar={filters} summary={summary} today={today} />

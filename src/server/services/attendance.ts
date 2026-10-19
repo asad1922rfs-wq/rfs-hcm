@@ -7,7 +7,7 @@ import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
-import { weekendOf } from "@/server/json-fields";
+import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -143,7 +143,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   if (opts.from > to) return;
 
   const [company, holidays, defaultShift, employees, latestPunch, earliestPunch] = await Promise.all([
-    db.company.findFirst({ select: { weekendDays: true } }),
+    db.company.findFirst({ select: { weekendDays: true, attendanceStartDate: true } }),
     holidayDatesBetween(opts.from, to),
     db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } }),
     db.employee.findMany({
@@ -154,9 +154,10 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     db.rawPunch.findFirst({ orderBy: { punchedAt: "asc" }, select: { punchedAt: true } }),
   ]);
   const weekendDays = weekendOf(company);
+  const start = attendanceStartOf(company);
   // Device data covers [syncedFrom, syncedThrough]; only inside that range can a day without punches be an absence.
   const syncedThrough = latestPunch ? toDateOnlyString(latestPunch.punchedAt) : null;
-  const syncedFrom = earliestPunch ? toDateOnlyString(earliestPunch.punchedAt) : null;
+  const syncedFrom = earliestPunch ? trackedFrom(toDateOnlyString(earliestPunch.punchedAt), start) : null;
   if (employees.length === 0) return;
 
   const punches = await db.rawPunch.findMany({
@@ -195,7 +196,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       (byDate.get(wd) ?? byDate.set(wd, []).get(wd)!).push(p.punchedAt);
     }
 
-    const joining = toDateOnlyString(emp.joiningDate);
+    // Days before joining, or before attendance was tracked in this system, have no record.
+    const joining = trackedFrom(toDateOnlyString(emp.joiningDate), start);
     const exit = emp.exitDate ? toDateOnlyString(emp.exitDate) : null;
     for (let date = opts.from; date <= to; date = addDaysIso(date, 1)) {
       const workDate = new Date(`${date}T00:00:00Z`);

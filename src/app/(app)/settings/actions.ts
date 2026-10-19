@@ -22,6 +22,7 @@ const companySchema = z.object({
   email: z.preprocess((v) => (v === "" ? undefined : v), z.email("Enter a valid email.").optional()),
   website: optionalText(200),
   ntn: optionalText(30),
+  attendanceStartDate: z.preprocess((v) => (v === "" ? null : v), z.string().regex(/^d{4}-d{2}-d{2}$/, "Choose a date.").nullable()),
 });
 
 export async function updateCompanyAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {

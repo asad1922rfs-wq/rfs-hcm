@@ -12,7 +12,7 @@ import { calculatePay, type AttendanceStatusCode, type PayLine } from "@/core/pa
 import { employeePayHistory } from "@/server/services/payroll";
 import { approvedLeaveDates, leaveBalances, pendingLeaveCount } from "@/server/services/leave";
 import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
-import { asStringArray, weekendOf } from "@/server/json-fields";
+import { asStringArray, attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidaysBetween } from "@/server/services/holidays";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
@@ -61,11 +61,14 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
   });
   const lastDayOfPeriod = new Date(Date.UTC(year, month, 0));
   const [company, holidays] = await Promise.all([
-    db.company.findFirst({ select: { weekendDays: true } }),
+    db.company.findFirst({ select: { weekendDays: true, attendanceStartDate: true } }),
     holidaysBetween(toDateOnlyString(new Date(Date.UTC(year, month - 1, 1))), toDateOnlyString(lastDayOfPeriod)),
   ]);
 
   const rows = await attendanceDaysForMonth(employee.id, year, month);
+  // Months before the attendance start were paid through the previous software: no estimate here.
+  const start = attendanceStartOf(company);
+  const monthBeforeTracking = !!start && toDateOnlyString(lastDayOfPeriod) < start;
   const records = new Map<string, DayRecord>(
     rows.map((r) => {
       const date = toDateOnlyString(r.workDate);
@@ -74,7 +77,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
   );
   const calendar = buildMonthCalendar({
     year, month, today: todayIso, weekendDays: weekendOf(company), holidays,
-    joiningDate: toDateOnlyString(employee.joiningDate),
+    joiningDate: trackedFrom(toDateOnlyString(employee.joiningDate), attendanceStartOf(company)),
     exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null,
     records,
   });
@@ -98,7 +101,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
         status: approved.run.status === "PAID" ? "PAID" : "APPROVED", netPay: Number(approved.netPay), gross: Number(approved.grossSalary),
         perDayRate: Number(approved.perDayRate), daysInMonth: approved.daysInMonth, lines: approved.lines as PayLine[], warnings: asStringArray(approved.warnings),
       };
-    } else {
+    } else if (!monthBeforeTracking) {
       const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
       const r = calculatePay({
         year, month, today: todayIso, joiningDate: toDateOnlyString(employee.joiningDate),

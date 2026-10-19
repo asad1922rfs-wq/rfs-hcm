@@ -7,7 +7,7 @@ import { assertPermission, type Actor } from "@/server/auth/session";
 import { calculatePay, type AttendanceStatusCode } from "@/core/payroll/calculate";
 import { approvedLeaveDates } from "@/server/services/leave";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
-import { weekendOf } from "@/server/json-fields";
+import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -122,6 +122,10 @@ export async function prepareRun(actor: Actor, year: number, month: number) {
   const today = todayInPKT();
   if (year > today.getUTCFullYear() || (year === today.getUTCFullYear() && month > today.getUTCMonth() + 1)) {
     throw new AppError("You cannot prepare payroll for a future month.");
+  }
+  const start = attendanceStartOf(await db.company.findFirst({ select: { attendanceStartDate: true } }));
+  if (start && toDateOnlyString(new Date(Date.UTC(year, month, 0))) < start) {
+    throw new AppError(`Attendance is tracked in this system from ${start}; payroll for earlier months was done in the previous software.`);
   }
   let run = await db.payrollRun.findUnique({ where: { year_month: { year, month } } });
   if (run) assertDraft(run);

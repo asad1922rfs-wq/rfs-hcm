@@ -22,7 +22,7 @@ export async function getCompany() {
 
 export async function updateCompany(
   actor: Actor,
-  input: { legalName: string; shortName: string; address?: string; phone?: string; email?: string; website?: string; ntn?: string; weekendDays: number[] },
+  input: { legalName: string; shortName: string; address?: string; phone?: string; email?: string; website?: string; ntn?: string; weekendDays: number[]; attendanceStartDate: string | null },
 ) {
   assertPermission(actor, "settings.company", "all");
   const before = await getCompany();
@@ -37,8 +37,17 @@ export async function updateCompany(
       website: input.website ?? null,
       ntn: input.ntn ?? null,
       weekendDays: [...new Set(input.weekendDays)].sort(),
+      attendanceStartDate: input.attendanceStartDate ? new Date(`${input.attendanceStartDate}T00:00:00Z`) : null,
     },
   });
+  const oldStart = before.attendanceStartDate ? toDateOnlyString(before.attendanceStartDate) : null;
+  if (oldStart !== input.attendanceStartDate) {
+    // Recalculate from the earliest day that enters or leaves the record (without an old start: all device data).
+    const earliest = oldStart ?? (await db.rawPunch.findFirst({ orderBy: { punchedAt: "asc" }, select: { punchedAt: true } }))?.punchedAt;
+    const candidates = [earliest ? (typeof earliest === "string" ? earliest : toDateOnlyString(earliest)) : null, input.attendanceStartDate];
+    const from = candidates.filter((d): d is string => !!d).sort()[0];
+    if (from) await recomputeAttendance({ from, to: toDateOnlyString(todayInPKT()) });
+  }
   await recordAudit({ actor, action: "company.update", entityType: "Company", entityId: after.id, before, after });
   return after;
 }

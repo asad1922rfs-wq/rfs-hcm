@@ -30,6 +30,8 @@ model Company {
   currency    String   @default("PKR")
   /// Weekly off days as a JSON array, 0 = Sunday … 6 = Saturday
   weekendDays Json
+  /// Attendance is shown, counted and paid from this date; earlier days were managed in another system
+  attendanceStartDate DateTime? @db.Date
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

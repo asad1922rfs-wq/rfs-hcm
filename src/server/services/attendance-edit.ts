@@ -10,7 +10,7 @@ import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { instantAt, PKT_OFFSET_MIN, ruleForDate, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
-import { weekendOf } from "@/server/json-fields";
+import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MAX_DAY_MINUTES = 20 * 60;
@@ -48,6 +48,8 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
   assertPermission(actor, "attendance.edit", "all");
   const date = toDateOnlyString(parseDateOnly(dateStr));
   if (date > toDateOnlyString(todayInPKT())) throw new AppError("You cannot set attendance for a future date.");
+  const start = await attendanceStart();
+  if (start && date < start) throw new AppError(`Attendance is tracked in this system from ${start}; earlier days were managed in the previous software.`);
   if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
   if (!input.checkIn && !input.checkOut && !input.excused) {
     throw new AppError("Enter a check-in or check-out time (both may be empty only for work from home or load shedding).");
@@ -303,10 +305,15 @@ const employeeSelect = {
 } satisfies Prisma.EmployeeSelect;
 
 /** Every employee (within the viewer's scope) on one date, optionally filtered by department and name/code search. */
+const attendanceStart = async () => attendanceStartOf(await db.company.findFirst({ select: { attendanceStartDate: true } }));
+
 export async function dailyRegister(actor: Actor, date: string, departmentId?: string, search?: string) {
   const q = search?.trim();
   const scope = await scopedEmployeeWhere(actor, "attendance.read");
   const d = toDateOnlyString(parseDateOnly(date));
+  const start = await attendanceStart();
+  // Before the attendance start the previous software holds the record, so nothing is listed.
+  if (start && d < start) return { rows: [], canEdit: false, trackedFrom: start };
   const workDate = new Date(`${d}T00:00:00Z`);
   const employees = await db.employee.findMany({
     where: {
@@ -323,7 +330,7 @@ export async function dailyRegister(actor: Actor, date: string, departmentId?: s
     select: employeeSelect,
   });
   const canEdit = can(actor, "attendance.edit", "all");
-  return { rows: await buildRows(employees, [d], canEdit), canEdit };
+  return { rows: await buildRows(employees, [d], canEdit), canEdit, trackedFrom: start };
 }
 
 /** One employee's month, day by day. */
@@ -332,8 +339,9 @@ export async function monthRegister(actor: Actor, employeeId: string, year: numb
   const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { ...employeeSelect, joiningDate: true, exitDate: true } });
   const today = toDateOnlyString(todayInPKT());
   const dim = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const tracked = trackedFrom(toDateOnlyString(employee.joiningDate), await attendanceStart());
   const dates = Array.from({ length: dim }, (_, i) => `${year}-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`).filter(
-    (d) => d <= today && d >= toDateOnlyString(employee.joiningDate) && (!employee.exitDate || d <= toDateOnlyString(employee.exitDate)),
+    (d) => d <= today && d >= tracked && (!employee.exitDate || d <= toDateOnlyString(employee.exitDate)),
   );
   const canEdit = can(actor, "attendance.edit", "all");
   return { rows: await buildRows([employee], dates, canEdit), canEdit };

@@ -27,6 +27,7 @@ export default async function CompanySettingsPage() {
           weekendDays: weekendOf(company),
           timezone: company.timezone,
           currency: company.currency,
+          attendanceStartDate: company.attendanceStartDate ? company.attendanceStartDate.toISOString().slice(0, 10) : "",
         }}
       />
     </div>

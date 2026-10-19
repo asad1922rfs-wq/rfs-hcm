@@ -11,7 +11,7 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 
 type Company = {
   legalName: string; shortName: string; address: string; phone: string; email: string; website: string; ntn: string;
-  weekendDays: number[]; timezone: string; currency: string;
+  weekendDays: number[]; timezone: string; currency: string; attendanceStartDate: string;
 };
 
 export function CompanyForm({ company }: { company: Company }) {
@@ -44,6 +44,18 @@ export function CompanyForm({ company }: { company: Company }) {
               {day}
             </Label>
           ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Attendance tracked from</CardTitle>
+          <CardDescription>
+            Days before this date are not shown, counted or paid here (they were managed in the previous software).
+            Machine punches are kept, so moving the date earlier brings those days back.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="max-w-xs">
+          <Field label="Start date" name="attendanceStartDate" type="date" defaultValue={company.attendanceStartDate} errors={fe?.attendanceStartDate} hint="Empty = all machine data" />
         </CardContent>
       </Card>
       <div className="flex justify-end"><SubmitButton>Save settings</SubmitButton></div>
