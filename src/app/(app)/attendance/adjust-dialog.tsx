@@ -8,10 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { FormMessage } from "@/components/form";
 import { AdjustmentFields } from "./adjustment-fields";
 import type { RegisterRow } from "@/server/services/attendance-edit";
-import { to12h } from "@/lib/format";
 import { removeAdjustmentAction, saveAdjustmentAction } from "./edit-actions";
-
-const show = (t: { time: string; nextDay: boolean } | null) => (t ? `${to12h(t.time)}${t.nextDay ? " (next day)" : ""}` : "—");
 
 export function AdjustDialog({ row }: { row: RegisterRow }) {
   const [open, setOpen] = useState(false);
@@ -44,16 +41,9 @@ export function AdjustDialog({ row }: { row: RegisterRow }) {
           <DialogTitle>Edit attendance · {row.fullName}</DialogTitle>
           <DialogDescription>
             {new Date(`${row.date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}
-            {" · "}shift {row.shiftLabel}. Machine punches are never changed; your times are used instead and recorded in the audit log.
+            {" · "}shift {row.shiftLabel}
           </DialogDescription>
         </DialogHeader>
-        <dl className="grid gap-1 rounded-md bg-muted px-3 py-2 text-xs">
-          <div><dt className="inline font-medium">Machine punches: </dt><dd className="inline">{row.machinePunches.length ? row.machinePunches.map(show).join(", ") : "none"}</dd></div>
-          <div><dt className="inline font-medium">Currently counted: </dt><dd className="inline">in {show(row.checkIn)}, out {show(row.checkOut)}</dd></div>
-          {row.adjustment && (
-            <div><dt className="inline font-medium">Manual change: </dt><dd className="inline">“{row.adjustment.reason}”</dd></div>
-          )}
-        </dl>
         <form onSubmit={onSubmit} className="grid gap-4">
           {state && !state.ok && <FormMessage state={state} />}
           <AdjustmentFields

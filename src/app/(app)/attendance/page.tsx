@@ -60,7 +60,7 @@ export default async function AttendanceRegisterPage({ searchParams }: { searchP
     <>
       <PageHeader
         title="Attendance"
-        description={canEdit ? "Daily register. Use Edit to correct a check-in or check-out — every change is logged." : "Daily register"}
+        description={canEdit ? "Daily register. Use Edit to correct a check-in or check-out." : "Daily register"}
         actions={can(actor, "attendance.manage", "all") && <Button asChild variant="outline"><Link href="/attendance/import"><Upload /> Import log</Link></Button>}
       />
 

@@ -7,7 +7,7 @@ import { assertPermission, can, type Actor } from "@/server/auth/session";
 import { assertEmployeeAccess, scopedEmployeeWhere } from "@/server/auth/scope";
 import { recomputeAttendance } from "@/server/services/attendance";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
-import { addDaysIso, instantAt, localMidnight, PKT_OFFSET_MIN, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
+import { instantAt, PKT_OFFSET_MIN, ruleForDate, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
@@ -49,7 +49,7 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
   if (date > toDateOnlyString(todayInPKT())) throw new AppError("You cannot set attendance for a future date.");
   if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
   if (!input.checkIn && !input.checkOut && !input.excused) {
-    throw new AppError("Enter a check-in or check-out time, or tick Excuse to count the day as present with the machine's times.");
+    throw new AppError("Enter a check-in or check-out time (both may be empty only for work from home or load shedding).");
   }
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
   return date;
@@ -239,7 +239,7 @@ export type RegisterRow = {
   earlyLeaveMinutes: number;
   isOffDay: boolean;
   shiftLabel: string;
-  machinePunches: { time: string; nextDay: boolean }[];
+  /** The manual change, only for people who may edit attendance (others never see that a day was edited). */
   adjustment: { checkIn: string | null; checkOut: string | null; reason: string; category: string; excused: boolean } | null;
 };
 
@@ -248,20 +248,15 @@ type EmployeeForRegister = {
   shift: (DayAwareShift & { dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[] }) | null;
 };
 
-async function buildRows(employees: EmployeeForRegister[], dates: string[]): Promise<RegisterRow[]> {
+async function buildRows(employees: EmployeeForRegister[], dates: string[], canEdit: boolean): Promise<RegisterRow[]> {
   if (!employees.length || !dates.length) return [];
   const first = dates[0]!;
   const last = dates[dates.length - 1]!;
   const range = { gte: new Date(`${first}T00:00:00Z`), lte: new Date(`${last}T00:00:00Z`) };
   const ids = employees.map((e) => e.id);
-  const [days, adjustments, punches, company, defaultShift] = await Promise.all([
+  const [days, adjustments, company, defaultShift] = await Promise.all([
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate: range } }),
-    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range } }),
-    db.rawPunch.findMany({
-      where: { employeeId: { in: ids }, punchedAt: { gte: localMidnight(addDaysIso(first, -1)), lt: localMidnight(addDaysIso(last, 2)) } },
-      select: { employeeId: true, punchedAt: true },
-      orderBy: { punchedAt: "asc" },
-    }),
+    canEdit ? db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range } }) : [],
     db.company.findFirst({ select: { weekendDays: true } }),
     db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true } }),
   ]);
@@ -274,14 +269,6 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[]): Pro
   for (const e of employees) {
     const s = e.shift ?? defaultShift;
     const shift: DayAwareShift | null = s ? { ...s, overrides: s.dayOverrides } : null;
-    const punchesByDate = new Map<string, Date[]>();
-    if (shift) {
-      for (const p of punches) {
-        if (p.employeeId !== e.id) continue;
-        const wd = workDateOf(p.punchedAt, shift);
-        (punchesByDate.get(wd) ?? punchesByDate.set(wd, []).get(wd)!).push(p.punchedAt);
-      }
-    }
     for (const date of dates) {
       const d = dayMap.get(key(e.id, date));
       const a = adjMap.get(key(e.id, date));
@@ -300,7 +287,6 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[]): Pro
         earlyLeaveMinutes: d?.earlyLeaveMinutes ?? 0,
         isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()),
         shiftLabel: rule ? `${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
-        machinePunches: (punchesByDate.get(date) ?? []).map((p) => localTime(p, date)!),
         adjustment: a ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused } : null,
       });
     }
@@ -334,7 +320,8 @@ export async function dailyRegister(actor: Actor, date: string, departmentId?: s
     orderBy: { fullName: "asc" },
     select: employeeSelect,
   });
-  return { rows: await buildRows(employees, [d]), canEdit: can(actor, "attendance.edit", "all") };
+  const canEdit = can(actor, "attendance.edit", "all");
+  return { rows: await buildRows(employees, [d], canEdit), canEdit };
 }
 
 /** One employee's month, day by day. */
@@ -346,5 +333,6 @@ export async function monthRegister(actor: Actor, employeeId: string, year: numb
   const dates = Array.from({ length: dim }, (_, i) => `${year}-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`).filter(
     (d) => d <= today && d >= toDateOnlyString(employee.joiningDate) && (!employee.exitDate || d <= toDateOnlyString(employee.exitDate)),
   );
-  return { rows: await buildRows([employee], dates), canEdit: can(actor, "attendance.edit", "all") };
+  const canEdit = can(actor, "attendance.edit", "all");
+  return { rows: await buildRows([employee], dates, canEdit), canEdit };
 }

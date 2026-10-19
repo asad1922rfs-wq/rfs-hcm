@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Label } from "@/components/ui/label";
 import { Field, NativeSelect } from "@/components/form";
 
 const CATEGORIES = [
@@ -19,7 +18,6 @@ export function AdjustmentFields({
 
 }) {
   const [category, setCategory] = useState(defaults?.category ?? "OTHER");
-  const [excused, setExcused] = useState(defaults?.excused ?? false);
 
   return (
     <>
@@ -28,10 +26,7 @@ export function AdjustmentFields({
           id="f-category"
           name="category"
           value={category}
-          onChange={(e) => {
-            setCategory(e.target.value);
-            setExcused(CATEGORIES.find((c) => c.value === e.target.value)?.excuse ?? false);
-          }}
+          onChange={(e) => setCategory(e.target.value)}
         >
           {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </NativeSelect>
@@ -40,13 +35,8 @@ export function AdjustmentFields({
         <Field label="Check-in" name="checkIn" type="time" defaultValue={defaults?.checkIn ?? ""} errors={errors?.checkIn} hint="Empty = machine's check-in" />
         <Field label="Check-out" name="checkOut" type="time" defaultValue={defaults?.checkOut ?? ""} errors={errors?.checkOut} hint="Empty = machine's check-out · 12:00 = midnight" />
       </div>
-      <Label className="flex items-start gap-2 font-normal">
-        <input type="checkbox" name="excused" checked={excused} onChange={(e) => setExcused(e.target.checked)} className="mt-0.5" />
-        <span>
-          Excuse the times I change
-          <span className="block text-xs text-muted-foreground">A changed check-in is not late; a changed check-out is not early. Machine times still count (e.g. a late machine check-in stays Late). Leave both times empty to count the whole day as Present.</span>
-        </span>
-      </Label>
+      {/* Work from home / load shedding excuse the changed times; a correction does not. */}
+      <input type="hidden" name="excused" value={String(CATEGORIES.find((c) => c.value === category)?.excuse ?? false)} />
       <Field
         label="Reason"
         name="reason"

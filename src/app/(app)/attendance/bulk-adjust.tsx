@@ -65,7 +65,7 @@ export function BulkAdjustButton({
         <DialogHeader>
           <DialogTitle>Bulk edit · {who}</DialogTitle>
           <DialogDescription>
-            The same change applies to everyone below. Machine punches are never changed and every change is logged per employee.
+            The same change applies to everyone below.
           </DialogDescription>
         </DialogHeader>
         <p className="max-h-20 overflow-y-auto rounded-md bg-muted px-3 py-2 text-xs">{employees.map((e) => e.name).join(", ")}</p>

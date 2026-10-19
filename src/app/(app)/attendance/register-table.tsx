@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,8 +13,6 @@ import { AdjustDialog } from "./adjust-dialog";
 import { BulkAdjustButton } from "./bulk-adjust";
 
 const show = (t: { time: string; nextDay: boolean } | null) => (t ? <>{to12h(t.time)}{t.nextDay && <sup className="ml-0.5 text-[10px] text-muted-foreground">+1</sup>}</> : "—");
-
-const BADGE: Record<string, string> = { WORK_FROM_HOME: "WFH", LOAD_SHEDDING: "Load shedding", OTHER: "Edited" };
 
 function StatusPill({ row }: { row: RegisterRow }) {
   const status: DayStatus | null = row.status ? (row.status as DayStatus) : row.isOffDay ? "OFF" : null;
@@ -91,7 +88,6 @@ export function RegisterTable({
               <TableHead>Check-out</TableHead>
               <TableHead className="hidden sm:table-cell">Worked</TableHead>
               <TableHead className="hidden md:table-cell">Late / early</TableHead>
-              <TableHead className="hidden lg:table-cell">Machine punches</TableHead>
               {canEdit && <TableHead />}
             </TableRow>
           </TableHeader>
@@ -121,11 +117,6 @@ export function RegisterTable({
                 </TableCell>
                 <TableCell>
                   <StatusPill row={r} />
-                  {r.adjustment && (
-                    <Badge variant="outline" className="ml-1 text-[10px]" title={`${r.adjustment.reason}${r.adjustment.excused ? " (late/early excused)" : ""}`}>
-                      {BADGE[r.adjustment.category] ?? "Edited"}
-                    </Badge>
-                  )}
                 </TableCell>
                 <TableCell className="whitespace-nowrap tabular-nums">{show(r.checkIn)}</TableCell>
                 <TableCell className="whitespace-nowrap tabular-nums">{show(r.checkOut)}</TableCell>
@@ -134,9 +125,6 @@ export function RegisterTable({
                   {r.status === "LATE" ? <span className="text-warning-foreground dark:text-warning">Late {r.lateMinutes}m</span> : null}
                   {r.earlyLeaveMinutes > 0 && <span className="ml-1">Early {r.earlyLeaveMinutes}m</span>}
                   {r.status !== "LATE" && !r.earlyLeaveMinutes && "—"}
-                </TableCell>
-                <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-                  {r.machinePunches.length ? r.machinePunches.map((p, i) => <span key={i} className="mr-1.5 whitespace-nowrap">{show(p)}</span>) : "—"}
                 </TableCell>
                 {canEdit && <TableCell className="text-right"><AdjustDialog row={r} /></TableCell>}
               </TableRow>
