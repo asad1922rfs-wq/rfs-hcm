@@ -56,3 +56,15 @@ describe("formatHoursMinutes", () => {
     expect(formatHoursMinutes(0)).toBe("0:00");
   });
 });
+
+describe("buildMonthCalendar with public holidays", () => {
+  it("shows a holiday as OFF with its name, past or future", () => {
+    const holidays = new Map([["2026-10-07", "Test Day"], ["2026-10-21", "Later Day"]]);
+    const days = buildMonthCalendar({ ...base, holidays });
+    const day = (d: string) => days.find((x) => x.date === d)!;
+    expect(day("2026-10-07")).toMatchObject({ status: "OFF", holiday: "Test Day" });
+    expect(day("2026-10-21")).toMatchObject({ status: "OFF", holiday: "Later Day" });
+    expect(day("2026-10-08").status).toBe("NOT_SYNCED");
+    expect(summariseMonth(days, base.today).notSynced).toBe(10); // 11 past weekdays, one of them the holiday
+  });
+});

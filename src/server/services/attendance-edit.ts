@@ -11,6 +11,7 @@ import { instantAt, PKT_OFFSET_MIN, ruleForDate, type DayAwareShift } from "@/co
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
+import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MAX_DAY_MINUTES = 20 * 60;
 /** Without a shift, a lone check-out before this time is taken as after midnight (e.g. 00:30). */
@@ -254,10 +255,11 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
   const last = dates[dates.length - 1]!;
   const range = { gte: new Date(`${first}T00:00:00Z`), lte: new Date(`${last}T00:00:00Z`) };
   const ids = employees.map((e) => e.id);
-  const [days, adjustments, company, defaultShift] = await Promise.all([
+  const [days, adjustments, company, holidays, defaultShift] = await Promise.all([
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate: range } }),
     canEdit ? db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range } }) : [],
     db.company.findFirst({ select: { weekendDays: true } }),
+    holidayDatesBetween(first, last),
     db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true } }),
   ]);
   const weekend = weekendOf(company);
@@ -285,7 +287,7 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
         workedMinutes: d?.workedMinutes ?? null,
         lateMinutes: d?.lateMinutes ?? 0,
         earlyLeaveMinutes: d?.earlyLeaveMinutes ?? 0,
-        isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()),
+        isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()) || holidays.has(date),
         shiftLabel: rule ? `${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
         adjustment: a ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused } : null,
       });

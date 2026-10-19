@@ -87,3 +87,18 @@ describe("calculatePay", () => {
     expect(r.warnings[0]).toMatch(/No salary/);
   });
 });
+
+describe("calculatePay with public holidays", () => {
+  // Mon 5 Oct 2026 made a holiday: no attendance row exists for it.
+  const days = octoberDays();
+  days.delete("2026-10-05");
+
+  it("a holiday without punches is neither absent nor 'not synced'", () => {
+    const r = calculatePay({ ...base, days, holidays: new Set(["2026-10-05"]) });
+    expect(r).toMatchObject({ absentDays: 0, notSyncedDays: 0, netPay: 85_000, warnings: [] });
+  });
+
+  it("without the holiday the same gap is flagged as a working day without data", () => {
+    expect(calculatePay({ ...base, days }).notSyncedDays).toBe(1);
+  });
+});

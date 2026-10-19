@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2, CalendarCheck, CalendarDays, ClipboardList, Clock, Fingerprint, LayoutDashboard, Network, ReceiptText,
-  ScrollText, ShieldCheck, UserCircle, UserCog, Users, Wallet,
+  PartyPopper, ScrollText, ShieldCheck, UserCircle, UserCog, Users, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NavIcon, NavSection } from "./nav";
@@ -25,6 +25,7 @@ const ICONS: Record<NavIcon, React.ComponentType<{ className?: string }>> = {
   users: UserCog,
   roles: ShieldCheck,
   audit: ScrollText,
+  holidays: PartyPopper,
 };
 
 export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; onNavigate?: () => void }) {

@@ -63,6 +63,7 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
     workedMinutes: d.workedMinutes,
     signIn: d.signIn,
     signOut: d.signOut,
+    holiday: d.holiday,
   }));
 
   return (

@@ -34,6 +34,15 @@ model Company {
   updatedAt   DateTime @updatedAt
 }
 
+/// Public holiday: a company-wide off day, treated exactly like a weekend day (no absence, no deduction)
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime @unique @db.Date
+  name      String   @db.VarChar(120)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Department {
   id          String     @id @default(cuid())
   name        String     @unique

@@ -15,6 +15,8 @@ export type CalendarDay = {
   /** Display labels in Pakistan time, e.g. "2:05 PM" or "12:30 AM (next day)" */
   signIn: string | null;
   signOut: string | null;
+  /** Public holiday name when the date is a holiday. */
+  holiday?: string;
 };
 
 export type MonthCalendarInput = {
@@ -22,6 +24,8 @@ export type MonthCalendarInput = {
   month: number; // 1–12
   today: string; // YYYY-MM-DD in company timezone
   weekendDays: readonly number[];
+  /** Public holidays (date → name); shown as OFF like a weekend day. */
+  holidays?: ReadonlyMap<string, string>;
   joiningDate: string;
   exitDate?: string | null;
   records: ReadonlyMap<string, DayRecord>;
@@ -36,7 +40,8 @@ export function buildMonthCalendar(input: MonthCalendarInput): CalendarDay[] {
   for (let d = 1; d <= daysInMonth; d++) {
     const date = iso(input.year, input.month, d);
     const weekday = new Date(Date.UTC(input.year, input.month - 1, d)).getUTCDay();
-    const base = { date, day: d, weekday };
+    const holiday = input.holidays?.get(date);
+    const base = { date, day: d, weekday, ...(holiday ? { holiday } : {}) };
 
     if (date < input.joiningDate || (input.exitDate && date > input.exitDate)) {
       days.push({ ...base, status: null, workedMinutes: null, signIn: null, signOut: null });
@@ -45,7 +50,7 @@ export function buildMonthCalendar(input: MonthCalendarInput): CalendarDay[] {
     const record = input.records.get(date);
     if (record) {
       days.push({ ...base, status: record.status, workedMinutes: record.workedMinutes, signIn: record.signIn ?? null, signOut: record.signOut ?? null });
-    } else if (input.weekendDays.includes(weekday)) {
+    } else if (input.weekendDays.includes(weekday) || holiday) {
       days.push({ ...base, status: "OFF", workedMinutes: null, signIn: null, signOut: null });
     } else if (date >= input.today) {
       days.push({ ...base, status: "SCHEDULED", workedMinutes: null, signIn: null, signOut: null });

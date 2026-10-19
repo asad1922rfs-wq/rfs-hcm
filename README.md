@@ -9,11 +9,11 @@ Architecture, decisions and open questions: [docs/ARCHITECTURE.md](docs/ARCHITEC
 
 | Phase | Scope | State |
 |---|---|---|
-| 1. Foundation | Auth, roles & permissions, app shell, employees, salary & bank records, company/org settings, users, audit log, Docker deployment | **Done** |
-| 2. Attendance | ZKTeco sync agent, punches, attendance engine & pages | Waiting on device model/firmware |
-| 3. Payroll | Policies, monthly calculation, approval & locking, estimated salary | Waiting on remaining payroll answers |
-| 4. Payslips & Leave | PDF payslips, leave management, self-service | Planned |
-| 5. Reports | Exports, hardening | Planned |
+| 1. Foundation | Auth, roles & permissions, app shell, employees, salary & bank records, company/org settings, users, audit log | **Done** |
+| 2. Attendance | ZKTeco MB460 sync agent (ADMS), punches, attendance engine, daily register, single & bulk edits, public holidays | **Done** |
+| 3. Payroll | Monthly calculation, HR prepares / Finance approves, month locking, estimated salary | **Done** |
+| 4. Payslips & Leave | PDF payslips, leave types & requests, self-service dashboard | **Done** |
+| 5. Reports | Attendance summary & daily detail, payroll register + bank transfer sheet, leave report (Excel) | **Done** |
 
 ## Local development (Windows)
 

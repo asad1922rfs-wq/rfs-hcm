@@ -7,6 +7,7 @@
 //   * Overtime is not paid. No income tax yet.
 // Defaults applied where RFS gave no rule (flagged in the summary to HR):
 //   * Joiners/leavers are paid only for the calendar days they were employed in the month.
+//   * Public holidays are off days like the weekend: never absent, never "not synced".
 //   * Days with no machine record are NOT deducted — they are reported as warnings for HR to check.
 //   * Money lines are rounded to whole rupees.
 
@@ -21,6 +22,8 @@ export type PayInput = {
   joiningDate: string;
   exitDate: string | null;
   weekendDays: readonly number[];
+  /** Public holiday dates ("YYYY-MM-DD"), off days like the weekend. */
+  holidays?: ReadonlySet<string>;
   salary: { basic: number; allowances: readonly { name: string; amount: number }[] } | null;
   /** Attendance status per work date (only dates that have a processed record). */
   days: ReadonlyMap<string, AttendanceStatusCode>;
@@ -105,7 +108,7 @@ export function calculatePay(input: PayInput): PayResult {
         break;
       case undefined: {
         const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-        if (!input.weekendDays.includes(weekday)) notSyncedDays++;
+        if (!input.weekendDays.includes(weekday) && !input.holidays?.has(date)) notSyncedDays++;
       }
     }
   }

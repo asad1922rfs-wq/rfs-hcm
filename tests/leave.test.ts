@@ -48,3 +48,14 @@ describe("payroll with leave", () => {
     expect(r.lines.find((l) => l.code === "UNPAID_LEAVE")!.amount).toBe(2742);
   });
 });
+
+describe("leave days with public holidays", () => {
+  // Mon 12 – Fri 16 Oct 2026 with Wed 14 Oct a holiday
+  const HOLIDAYS = new Set(["2026-10-14"]);
+
+  it("does not count a holiday inside the leave", () => {
+    expect(countLeaveDays("2026-10-12", "2026-10-16", WEEKEND, HOLIDAYS)).toBe(4);
+    expect(countLeaveDays("2026-10-14", "2026-10-14", WEEKEND, HOLIDAYS)).toBe(0);
+    expect(leaveDaysWithin("2026-10-12", "2026-10-31", "2026-10-01", "2026-10-15", WEEKEND, HOLIDAYS)).toBe(3);
+  });
+});

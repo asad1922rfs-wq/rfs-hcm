@@ -10,12 +10,15 @@ import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { balanceOf, countLeaveDays, leaveDaysWithin, type Balance } from "@/core/leave/days";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
+import { holidayDatesBetween } from "@/server/services/holidays";
 
 const iso = (d: Date) => toDateOnlyString(d);
 const d0 = (s: string) => new Date(`${s}T00:00:00Z`);
 
-async function weekendDays() {
-  return weekendOf(await db.company.findFirst({ select: { weekendDays: true } }));
+/** Weekly off days plus the public holidays in [from, to] — the days leave never counts. */
+async function offDays(from: string, to: string) {
+  const [company, holidays] = await Promise.all([db.company.findFirst({ select: { weekendDays: true } }), holidayDatesBetween(from, to)]);
+  return { weekend: weekendOf(company), holidays };
 }
 
 // ───────────── Leave types ─────────────
@@ -44,17 +47,17 @@ export type LeaveBalance = Balance & { leaveTypeId: string; name: string; isPaid
 
 /** Balance per active leave type for a calendar year (approved = used, pending reserved). */
 export async function leaveBalances(employeeId: string, year: number): Promise<LeaveBalance[]> {
-  const [types, requests, weekend] = await Promise.all([
+  const [types, requests, { weekend, holidays }] = await Promise.all([
     listLeaveTypes(),
     db.leaveRequest.findMany({
       where: { employeeId, status: { in: ["APPROVED", "PENDING"] }, startDate: { lte: d0(`${year}-12-31`) }, endDate: { gte: d0(`${year}-01-01`) } },
     }),
-    weekendDays(),
+    offDays(`${year}-01-01`, `${year}-12-31`),
   ]);
   return types.map((t) => {
     const mine = requests.filter((r) => r.leaveTypeId === t.id);
     const days = (status: LeaveStatus) =>
-      mine.filter((r) => r.status === status).reduce((n, r) => n + leaveDaysWithin(iso(r.startDate), iso(r.endDate), `${year}-01-01`, `${year}-12-31`, weekend), 0);
+      mine.filter((r) => r.status === status).reduce((n, r) => n + leaveDaysWithin(iso(r.startDate), iso(r.endDate), `${year}-01-01`, `${year}-12-31`, weekend, holidays), 0);
     return { leaveTypeId: t.id, name: t.name, isPaid: t.isPaid, ...balanceOf(t.daysPerYear, days("APPROVED"), days("PENDING")) };
   });
 }
@@ -77,18 +80,18 @@ export async function requestLeave(
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the leave.");
   if (Date.parse(end) - Date.parse(start) > 90 * 86_400_000) throw new AppError("A single request can cover at most 90 days.");
 
-  const [employee, type, weekend] = await Promise.all([
+  const [employee, type, { weekend, holidays }] = await Promise.all([
     db.employee.findUnique({ where: { id: employeeId }, select: { id: true, fullName: true, joiningDate: true, exitDate: true, status: true } }),
     db.leaveType.findUnique({ where: { id: input.leaveTypeId } }),
-    weekendDays(),
+    offDays(start, end),
   ]);
   if (!employee) throw new NotFoundError("Employee not found.");
   if (!type || !type.isActive) throw new AppError("Choose an active leave type.");
   if (start < iso(employee.joiningDate)) throw new AppError("Leave cannot start before the joining date.");
   if (employee.exitDate && end > iso(employee.exitDate)) throw new AppError("Leave cannot end after the exit date.");
 
-  const days = countLeaveDays(start, end, weekend);
-  if (days === 0) throw new AppError("Those dates are all weekly off days — no leave is needed.");
+  const days = countLeaveDays(start, end, weekend, holidays);
+  if (days === 0) throw new AppError("Those dates are all weekly off days or holidays — no leave is needed.");
   for (const date of [start, end]) {
     if (await isPayrollLockedFor(date)) throw new AppError("Payroll for that month is already approved. Ask HR to record it as a payroll adjustment.");
   }
@@ -101,7 +104,7 @@ export async function requestLeave(
   if (type.daysPerYear !== null) {
     for (const year of new Set([start.slice(0, 4), end.slice(0, 4)])) {
       const bal = (await leaveBalances(employeeId, Number(year))).find((b) => b.leaveTypeId === type.id)!;
-      const needed = leaveDaysWithin(start, end, `${year}-01-01`, `${year}-12-31`, weekend);
+      const needed = leaveDaysWithin(start, end, `${year}-01-01`, `${year}-12-31`, weekend, holidays);
       if (bal.remaining !== null && needed > bal.remaining) {
         throw new AppError(`Not enough ${type.name} balance for ${year}: ${bal.remaining} day(s) left, ${needed} requested (pending requests count too).`);
       }
@@ -209,19 +212,19 @@ export async function pendingLeaveCount(actor: Actor) {
 
 /** Approved leave dates per employee in a range, split by paid/unpaid — used by attendance and payroll. */
 export async function approvedLeaveDates(employeeIds: string[], from: string, to: string) {
-  const [rows, weekend] = await Promise.all([
+  const [rows, { weekend, holidays }] = await Promise.all([
     db.leaveRequest.findMany({
       where: { employeeId: { in: employeeIds }, status: "APPROVED", startDate: { lte: d0(to) }, endDate: { gte: d0(from) } },
       include: { leaveType: { select: { isPaid: true } } },
     }),
-    weekendDays(),
+    offDays(from, to),
   ]);
   const map = new Map<string, Map<string, boolean>>(); // employeeId → date → isPaid
   for (const r of rows) {
     const m = map.get(r.employeeId) ?? map.set(r.employeeId, new Map()).get(r.employeeId)!;
     for (let t = Math.max(Date.parse(iso(r.startDate)), Date.parse(from)); t <= Math.min(Date.parse(iso(r.endDate)), Date.parse(to)); t += 86_400_000) {
       const date = new Date(t).toISOString().slice(0, 10);
-      if (!weekend.includes(new Date(t).getUTCDay())) m.set(date, r.leaveType.isPaid);
+      if (!weekend.includes(new Date(t).getUTCDay()) && !holidays.has(date)) m.set(date, r.leaveType.isPaid);
     }
   }
   return map;

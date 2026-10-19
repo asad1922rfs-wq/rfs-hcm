@@ -1,5 +1,5 @@
-// Leave day counting. Pure. Leave is counted in working days: weekly off days inside the range are not
-// counted (a Friday–Monday leave with a Sat/Sun weekend is 2 days).
+// Leave day counting. Pure. Leave is counted in working days: weekly off days and public holidays inside the
+// range are not counted (a Friday–Monday leave with a Sat/Sun weekend is 2 days).
 
 export function eachDate(start: string, end: string): string[] {
   const out: string[] = [];
@@ -13,20 +13,25 @@ export function isWeekend(date: string, weekendDays: readonly number[]): boolean
   return weekendDays.includes(new Date(`${date}T00:00:00Z`).getUTCDay());
 }
 
-/** Working dates in [start, end]. */
-export function leaveDates(start: string, end: string, weekendDays: readonly number[]): string[] {
-  return eachDate(start, end).filter((d) => !isWeekend(d, weekendDays));
+/** Weekly off day or public holiday (holidays as "YYYY-MM-DD"). */
+export function isOffDay(date: string, weekendDays: readonly number[], holidays?: ReadonlySet<string>): boolean {
+  return isWeekend(date, weekendDays) || !!holidays?.has(date);
 }
 
-export function countLeaveDays(start: string, end: string, weekendDays: readonly number[]): number {
-  return leaveDates(start, end, weekendDays).length;
+/** Working dates in [start, end]. */
+export function leaveDates(start: string, end: string, weekendDays: readonly number[], holidays?: ReadonlySet<string>): string[] {
+  return eachDate(start, end).filter((d) => !isOffDay(d, weekendDays, holidays));
+}
+
+export function countLeaveDays(start: string, end: string, weekendDays: readonly number[], holidays?: ReadonlySet<string>): number {
+  return leaveDates(start, end, weekendDays, holidays).length;
 }
 
 /** Working days of [start, end] that fall inside [from, to] (e.g. one calendar year or one payroll month). */
-export function leaveDaysWithin(start: string, end: string, from: string, to: string, weekendDays: readonly number[]): number {
+export function leaveDaysWithin(start: string, end: string, from: string, to: string, weekendDays: readonly number[], holidays?: ReadonlySet<string>): number {
   const s = start > from ? start : from;
   const e = end < to ? end : to;
-  return s > e ? 0 : countLeaveDays(s, e, weekendDays);
+  return s > e ? 0 : countLeaveDays(s, e, weekendDays, holidays);
 }
 
 export type Balance = { entitlement: number | null; used: number; pending: number; remaining: number | null };

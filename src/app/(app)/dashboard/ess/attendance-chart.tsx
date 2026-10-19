@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { DAY_STATUSES, type DayStatus } from "@/core/attendance/day-status";
 import { formatHoursMinutes } from "@/core/attendance/month-calendar";
 
-export type ChartDay = { date: string; label: string; status: DayStatus | null; workedMinutes: number | null; signIn: string | null; signOut: string | null };
+export type ChartDay = { date: string; label: string; status: DayStatus | null; workedMinutes: number | null; signIn: string | null; signOut: string | null; holiday?: string };
 
 /** Days without worked time get a short fixed bar so their status colour is still visible. */
 const MARKER_MINUTES = 83;
@@ -69,6 +69,7 @@ export function AttendanceFlagChart({ days }: { days: ChartDay[] }) {
                 <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
                   <p className="font-medium">{d.date}</p>
                   <p>{d.status ? DAY_STATUSES[d.status].label : "Not employed"}</p>
+                  {d.holiday && <p>Holiday: {d.holiday}</p>}
                   {d.status === "MISSING" && d.signIn ? (
                     <p>Only punch: {d.signIn} (sign-in or sign-out missing)</p>
                   ) : (

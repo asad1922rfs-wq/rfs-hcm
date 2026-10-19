@@ -13,6 +13,7 @@ import { employeePayHistory } from "@/server/services/payroll";
 import { approvedLeaveDates, leaveBalances, pendingLeaveCount } from "@/server/services/leave";
 import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
 import { asStringArray, weekendOf } from "@/server/json-fields";
+import { holidaysBetween } from "@/server/services/holidays";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
 function clockLabel(instant: Date | null, workDate: string): string | null {
@@ -58,7 +59,11 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       designation: { select: { title: true } }, department: { select: { name: true } },
     },
   });
-  const company = await db.company.findFirst({ select: { weekendDays: true } });
+  const lastDayOfPeriod = new Date(Date.UTC(year, month, 0));
+  const [company, holidays] = await Promise.all([
+    db.company.findFirst({ select: { weekendDays: true } }),
+    holidaysBetween(toDateOnlyString(new Date(Date.UTC(year, month - 1, 1))), toDateOnlyString(lastDayOfPeriod)),
+  ]);
 
   const rows = await attendanceDaysForMonth(employee.id, year, month);
   const records = new Map<string, DayRecord>(
@@ -68,13 +73,12 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     }),
   );
   const calendar = buildMonthCalendar({
-    year, month, today: todayIso, weekendDays: weekendOf(company),
+    year, month, today: todayIso, weekendDays: weekendOf(company), holidays,
     joiningDate: toDateOnlyString(employee.joiningDate),
     exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null,
     records,
   });
   const summary = summariseMonth(calendar, todayIso);
-  const lastDayOfPeriod = new Date(Date.UTC(year, month, 0));
   const summaryUntil = todayIso < toDateOnlyString(lastDayOfPeriod) ? todayIso : toDateOnlyString(lastDayOfPeriod);
 
   const birthdayToday = !!employee.dateOfBirth && nextAnniversary(employee.dateOfBirth, today).getTime() === today.getTime();
@@ -98,7 +102,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
       const r = calculatePay({
         year, month, today: todayIso, joiningDate: toDateOnlyString(employee.joiningDate),
-        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: weekendOf(company),
+        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: weekendOf(company), holidays: new Set(holidays.keys()),
         salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
         days: new Map(rows.map((r) => [toDateOnlyString(r.workDate), r.status as AttendanceStatusCode])),
         adjustments: [],

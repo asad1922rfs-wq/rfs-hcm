@@ -8,6 +8,7 @@ import { calculatePay, type AttendanceStatusCode } from "@/core/payroll/calculat
 import { approvedLeaveDates } from "@/server/services/leave";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
+import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const monthName = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
@@ -26,7 +27,7 @@ export { isPayrollLockedFor } from "@/server/services/payroll-lock";
 async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
   const { start, end } = monthBounds(run.year, run.month);
   const today = toDateOnlyString(todayInPKT());
-  const company = await db.company.findFirst({ select: { weekendDays: true } });
+  const [company, holidays] = await Promise.all([db.company.findFirst({ select: { weekendDays: true } }), holidayDatesBetween(start, end)]);
 
   const employees = await db.employee.findMany({
     where: {
@@ -62,6 +63,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       joiningDate: toDateOnlyString(e.joiningDate),
       exitDate: e.exitDate ? toDateOnlyString(e.exitDate) : null,
       weekendDays: weekendOf(company),
+      holidays,
       salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
       days: new Map(e.attendanceDays.map((d) => [toDateOnlyString(d.workDate), d.status as AttendanceStatusCode])),
       adjustments: (prior?.adjustments ?? []).map((a) => ({ kind: a.kind, label: a.label, amount: Number(a.amount) })),

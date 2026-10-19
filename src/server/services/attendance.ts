@@ -8,6 +8,7 @@ import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight,
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
+import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 /** Fallback when an employee has no shift and no default shift exists. */
@@ -141,8 +142,9 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const to = opts.to > today ? today : opts.to;
   if (opts.from > to) return;
 
-  const [company, defaultShift, employees, latestPunch, earliestPunch] = await Promise.all([
+  const [company, holidays, defaultShift, employees, latestPunch, earliestPunch] = await Promise.all([
     db.company.findFirst({ select: { weekendDays: true } }),
+    holidayDatesBetween(opts.from, to),
     db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } }),
     db.employee.findMany({
       where: { deviceUserId: { not: null }, ...(opts.employeeIds ? { id: { in: opts.employeeIds } } : {}) },
@@ -202,7 +204,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
         writes.push(db.attendanceDay.deleteMany({ where: { employeeId: emp.id, workDate } }));
         continue;
       }
-      const isOffDay = weekendDays.includes(workDate.getUTCDay());
+      const isOffDay = weekendDays.includes(workDate.getUTCDay()) || holidays.has(date);
       const adj = adjustments.get(`${emp.id}|${date}`);
       const machine = byDate.get(date) ?? [];
       const effective = adj ? applyAdjustment(machine, adj) : machine;
