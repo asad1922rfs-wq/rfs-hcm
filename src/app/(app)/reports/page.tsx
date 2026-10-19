@@ -58,8 +58,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <CardHeader>
             <CardTitle>Monthly attendance summary</CardTitle>
             <CardDescription>
-              Per employee: present, late, early, missing punch, absent, leave, worked hours and late deduction days (every 3 late
-              arrivals or missing punches = 1 day). {XLSX_HINT}.
+              Per employee: present, late, early, missing punch, absent, leave, worked hours, and deduction days: each absent day plus
+              1 day for every 3 late arrivals or missing punches. {XLSX_HINT}.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -167,7 +167,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <TableHead className="hidden text-right sm:table-cell">Worked h</TableHead>
                 <TableHead className="hidden text-right sm:table-cell">Late min</TableHead>
                 <TableHead className="text-right">Late + missing</TableHead>
-                <TableHead className="text-right">Deduction days</TableHead>
+                <TableHead className="text-right">Late deduction</TableHead>
+                <TableHead className="text-right">Total deduction days</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -187,7 +188,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{(r.workedMinutes / 60).toFixed(1)}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.lateMinutes}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.lateAndMissing}</TableCell>
-                  <TableCell className={`text-right font-medium tabular-nums ${r.lateDeductionDays ? "text-destructive" : ""}`}>{r.lateDeductionDays}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.lateDeductionDays}</TableCell>
+                  <TableCell className={`text-right font-semibold tabular-nums ${r.totalDeductionDays ? "text-destructive" : ""}`} title={`${r.absent} absent + ${r.lateDeductionDays} for lates`}>{r.totalDeductionDays}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

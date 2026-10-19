@@ -63,4 +63,15 @@ describe("helpers", () => {
     expect(hoursMinutes(0)).toBe("0:00");
     expect(hoursMinutes(null)).toBe("");
   });
+
+  it("total deduction days = absent days + one day per 3 lates/missing", () => {
+    const days = [
+      { workDate: "2026-10-01", status: "ABSENT", workedMinutes: null, lateMinutes: 0 },
+      { workDate: "2026-10-02", status: "ABSENT", workedMinutes: null, lateMinutes: 0 },
+      { workDate: "2026-10-05", status: "LATE", workedMinutes: 500, lateMinutes: 20 },
+      { workDate: "2026-10-06", status: "LATE", workedMinutes: 500, lateMinutes: 20 },
+      { workDate: "2026-10-07", status: "MISSING", workedMinutes: null, lateMinutes: 0 },
+    ] as const;
+    expect(summariseAttendance(days, "2026-10-01", "2026-10-31")).toMatchObject({ absent: 2, lateDeductionDays: 1, totalDeductionDays: 3 });
+  });
 });

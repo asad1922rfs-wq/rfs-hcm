@@ -4,6 +4,7 @@
 //   * "Present" is every day the employee attended: PRESENT, LATE, EARLY, HALF_DAY, SHORT_DAY and MISSING.
 //     The per-status columns break that total down.
 //   * Late arrivals and missing punches together: every 3 deduct one day.
+//   * Each absent day deducts one full day; total deduction days = absent + late deduction days.
 //   * Only days inside [from, to] are counted, so a stray record outside the month never leaks in.
 
 import { LATES_PER_DEDUCTION_DAY, type AttendanceStatusCode } from "@/core/payroll/calculate";
@@ -29,12 +30,14 @@ export type AttendanceSummary = {
   /** Late arrivals + missing punches — the count the late-deduction rule applies to. */
   lateAndMissing: number;
   lateDeductionDays: number;
+  /** Absent days + late deduction days: the days payroll deducts for attendance. */
+  totalDeductionDays: number;
 };
 
 export function summariseAttendance(days: readonly SummaryDay[], from: string, to: string): AttendanceSummary {
   const s: AttendanceSummary = {
     present: 0, onTime: 0, late: 0, early: 0, missing: 0, halfOrShort: 0, absent: 0, leave: 0,
-    workedMinutes: 0, lateMinutes: 0, lateAndMissing: 0, lateDeductionDays: 0,
+    workedMinutes: 0, lateMinutes: 0, lateAndMissing: 0, lateDeductionDays: 0, totalDeductionDays: 0,
   };
   for (const d of days) {
     if (d.workDate < from || d.workDate > to) continue;
@@ -68,6 +71,7 @@ export function summariseAttendance(days: readonly SummaryDay[], from: string, t
   }
   s.lateAndMissing = s.late + s.missing;
   s.lateDeductionDays = Math.floor(s.lateAndMissing / LATES_PER_DEDUCTION_DAY);
+  s.totalDeductionDays = s.absent + s.lateDeductionDays;
   return s;
 }
 

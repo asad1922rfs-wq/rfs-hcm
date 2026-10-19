@@ -343,12 +343,13 @@ export async function attendanceSummaryWorkbook(actor: Actor, year: number, mont
     { header: "Late Minutes", key: "lateMin", width: 10, numFmt: PKR },
     { header: "Late + Missing", key: "lateMissing", width: 10 },
     { header: "Late Deduction Days (every 3 = 1)", key: "lateDays", width: 14 },
+    { header: "Total Deduction Days (absent + late)", key: "totalDays", width: 16 },
   ];
   const data = rows.map((r) => ({
     code: r.employeeCode, name: r.fullName, dept: r.department ?? "", desig: r.designation ?? "",
     present: r.present, onTime: r.onTime, late: r.late, early: r.early, missing: r.missing, halfShort: r.halfOrShort,
     absent: r.absent, leave: r.leave, hours: Math.round((r.workedMinutes / 60) * 10) / 10, lateMin: r.lateMinutes,
-    lateMissing: r.lateAndMissing, lateDays: r.lateDeductionDays,
+    lateMissing: r.lateAndMissing, lateDays: r.lateDeductionDays, totalDays: r.totalDeductionDays,
   }));
   const wb = newWorkbook();
   const period = `${monthName(year, month)}${department ? ` · ${department.name}` : ""}`;
