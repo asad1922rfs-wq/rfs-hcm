@@ -26,7 +26,7 @@ export const MAX_DAILY_RANGE_DAYS = 62;
 const d0 = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
 /** Employees in scope who were employed at some point in [from, to]. */
-async function employeesFor(actor: Actor, permission: "attendance.read" | "leave.read", from: string, to: string, filter: { departmentId?: string; employeeId?: string }) {
+async function employeesFor(actor: Actor, permission: "report.read", from: string, to: string, filter: { departmentId?: string; employeeId?: string }) {
   const scope = await scopedEmployeeWhere(actor, permission);
   return db.employee.findMany({
     where: {
@@ -58,9 +58,9 @@ export type AttendanceSummaryRow = AttendanceSummary & {
 };
 
 export async function attendanceSummaryRows(actor: Actor, year: number, month: number, departmentId?: string): Promise<AttendanceSummaryRow[]> {
-  assertPermission(actor, "attendance.read", "team");
+  assertPermission(actor, "report.read", "team");
   const { from, to } = monthRange(year, month);
-  const employees = await employeesFor(actor, "attendance.read", from, to, { departmentId });
+  const employees = await employeesFor(actor, "report.read", from, to, { departmentId });
   const days = employees.length
     ? await db.attendanceDay.findMany({
         where: { employeeId: { in: employees.map((e) => e.id) }, workDate: { gte: d0(from), lte: d0(to) } },
@@ -102,12 +102,12 @@ function clock(instant: Date | null, workDate: string): string {
 }
 
 export async function dailyDetailRows(actor: Actor, from: string, to: string, filter: { departmentId?: string; employeeId?: string }): Promise<DailyDetailRow[]> {
-  assertPermission(actor, "attendance.read", "team");
+  assertPermission(actor, "report.read", "team");
   if (to < from) throw new AppError("The end date is before the start date.");
   const span = (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1;
   if (span > MAX_DAILY_RANGE_DAYS) throw new AppError(`Choose at most ${MAX_DAILY_RANGE_DAYS} days.`);
 
-  const employees = await employeesFor(actor, "attendance.read", from, to, filter);
+  const employees = await employeesFor(actor, "report.read", from, to, filter);
   const [days, company, holidays] = await Promise.all([
     employees.length
       ? db.attendanceDay.findMany({ where: { employeeId: { in: employees.map((e) => e.id) }, workDate: { gte: d0(from), lte: d0(to) } } })
@@ -160,10 +160,10 @@ export type LeaveReportRow = {
 };
 
 export async function leaveReportRows(actor: Actor, year: number, departmentId?: string): Promise<LeaveReportRow[]> {
-  assertPermission(actor, "leave.read", "team");
+  assertPermission(actor, "report.read", "team");
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
-  const employees = await employeesFor(actor, "leave.read", from, to, { departmentId });
+  const employees = await employeesFor(actor, "report.read", from, to, { departmentId });
   const ids = employees.map((e) => e.id);
   const pending = ids.length
     ? await db.leaveRequest.groupBy({
@@ -241,9 +241,9 @@ export async function payrollRunOptions(actor: Actor) {
 
 // ───────────── Filter options ─────────────
 
-/** Employees the actor may see attendance for — for the employee filter on the reports page. */
+/** Employees the actor may report on — for the employee filter on the reports page. */
 export async function reportEmployeeOptions(actor: Actor) {
-  const scope = await scopedEmployeeWhere(actor, "attendance.read");
+  const scope = await scopedEmployeeWhere(actor, "report.read");
   return db.employee.findMany({
     where: { AND: [scope, { OR: [{ status: "ACTIVE" }, { exitDate: { not: null } }] }] },
     orderBy: { fullName: "asc" },

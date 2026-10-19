@@ -39,7 +39,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const year = Number(month.slice(0, 4));
   const monthNo = Number(month.slice(5, 7));
   const showPayroll = can(actor, "payroll.read", "all");
-  const showLeave = can(actor, "leave.read", "team");
+  // Attendance and leave reports need only report.read; payroll also needs payroll.read.
+  const showLeave = true;
 
   const [departments, employees, runs] = await Promise.all([
     listDepartments(),
