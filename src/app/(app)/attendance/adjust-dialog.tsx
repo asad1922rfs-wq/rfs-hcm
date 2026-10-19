@@ -5,14 +5,15 @@ import { Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { FormMessage } from "@/components/form";
+import { Field, FormMessage } from "@/components/form";
 import { AdjustmentFields } from "./adjustment-fields";
 import type { RegisterRow } from "@/server/services/attendance-edit";
 import { removeAdjustmentAction, saveAdjustmentAction } from "./edit-actions";
 
-export function AdjustDialog({ row }: { row: RegisterRow }) {
+export function AdjustDialog({ row, today }: { row: RegisterRow; today?: string }) {
   const [open, setOpen] = useState(false);
-  const [state, action, saving] = useActionState(saveAdjustmentAction.bind(null, row.employeeId, row.date), null);
+  const [state, action, saving] = useActionState(saveAdjustmentAction.bind(null, row.employeeId), null);
+  const [date, setDate] = useState(row.date);
   const [reverting, startRevert] = useTransition();
   const fe = state && !state.ok ? state.fieldErrors : undefined;
 
@@ -32,7 +33,7 @@ export function AdjustDialog({ row }: { row: RegisterRow }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setDate(row.date); }}>
       <DialogTrigger asChild>
         <Button size="sm" variant="ghost" aria-label={`Edit attendance for ${row.fullName} on ${row.date}`}><Pencil className="size-3.5" /> Edit</Button>
       </DialogTrigger>
@@ -40,12 +41,13 @@ export function AdjustDialog({ row }: { row: RegisterRow }) {
         <DialogHeader>
           <DialogTitle>Edit attendance · {row.fullName}</DialogTitle>
           <DialogDescription>
-            {new Date(`${row.date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}
+            {date && new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}
             {" · "}shift {row.shiftLabel}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="grid gap-4">
           {state && !state.ok && <FormMessage state={state} />}
+          <Field label="Date" name="date" type="date" required max={today} value={date} onChange={(e) => setDate(e.target.value)} />
           <AdjustmentFields
             errors={fe}
             defaults={row.adjustment ? { checkIn: row.adjustment.checkIn, checkOut: row.adjustment.checkOut, reason: row.adjustment.reason, category: row.adjustment.category, excused: row.adjustment.excused } : undefined}

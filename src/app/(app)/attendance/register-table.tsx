@@ -126,7 +126,7 @@ export function RegisterTable({
                   {r.earlyLeaveMinutes > 0 && <span className="ml-1">Early {r.earlyLeaveMinutes}m</span>}
                   {r.status !== "LATE" && !r.earlyLeaveMinutes && "—"}
                 </TableCell>
-                {canEdit && <TableCell className="text-right"><AdjustDialog row={r} /></TableCell>}
+                {canEdit && <TableCell className="text-right"><AdjustDialog row={r} today={today} /></TableCell>}
               </TableRow>
             ))}
           </TableBody>

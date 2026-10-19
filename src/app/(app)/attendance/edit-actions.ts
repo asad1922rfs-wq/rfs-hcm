@@ -29,8 +29,9 @@ function refresh(employeeIds: string[]) {
   for (const id of employeeIds.slice(0, 50)) revalidatePath(`/employees/${id}`);
 }
 
-export async function saveAdjustmentAction(employeeId: string, date: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+export async function saveAdjustmentAction(employeeId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   return runAction(async () => {
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date.").parse(fd.get("date"));
     await saveAttendanceAdjustment(await requireActor(), { employeeId, date, ...parse(fd) });
     refresh([employeeId]);
     return { ok: true, message: "Attendance updated." };
