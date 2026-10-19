@@ -2,17 +2,28 @@ import "server-only";
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { rupeesInWords } from "@/core/payroll/amount-in-words";
 
-// A4 payslip. Built-in Helvetica keeps the PDF small and dependency-free.
+// A4 payslip in the layout RFS used in FlowHCM. Built-in Helvetica keeps the PDF small and dependency-free.
+// One layout, two variants: "expected" (an estimate before payroll is approved) and "final" (approved / paid run).
 
 export type PayslipData = {
+  kind: "expected" | "final";
   company: { legalName: string; address: string | null; phone: string | null; email: string | null; ntn: string | null; logo?: string | null };
   period: string; // "October 2026"
-  status: "APPROVED" | "PAID";
+  status: "ESTIMATE" | "APPROVED" | "PAID";
   paidAt: Date | null;
-  generatedAt: Date;
-  employee: { code: string; name: string; department: string | null; designation: string | null; cnicMasked: string | null; bank: string | null };
-  attendance: { daysInMonth: number; employedDays: number; presentDays: number; absentDays: number; lateCount: number; missingPunchCount: number; lateDeductionDays: number };
-  perDayRate: number;
+  printDate: Date;
+  /** Who printed it: the signed-in user's employee name, else their email. */
+  printedBy: string;
+  employee: {
+    code: string;
+    name: string;
+    department: string | null;
+    designation: string | null;
+    /** Full or masked, already decided by the caller. */
+    cnic: string | null;
+    joiningDate: string | null; // YYYY-MM-DD
+  };
+  monthlySalary: number;
   earnings: { label: string; amount: number }[];
   deductions: { label: string; amount: number }[];
   totalEarnings: number;
@@ -20,128 +31,164 @@ export type PayslipData = {
   netPay: number;
 };
 
-const NAVY = "#1e3a8a";
-const GREY = "#64748b";
-const LINE = "#e2e8f0";
+const BLUE = "#3b6fb6";
+const GREY = "#6b7280";
+const LINE = "#c9ced6";
 
 const s = StyleSheet.create({
-  page: { padding: 36, fontSize: 9.5, fontFamily: "Helvetica", color: "#0f172a" },
-  header: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 2, borderBottomColor: NAVY, paddingBottom: 10, marginBottom: 14 },
-  company: { fontSize: 14, fontFamily: "Helvetica-Bold", color: NAVY },
-  muted: { color: GREY },
-  title: { fontSize: 12, fontFamily: "Helvetica-Bold", textAlign: "right" },
-  status: { marginTop: 4, alignSelf: "flex-end", paddingVertical: 2, paddingHorizontal: 6, borderRadius: 3, fontSize: 8, fontFamily: "Helvetica-Bold", color: "#ffffff" },
-  grid: { flexDirection: "row", flexWrap: "wrap", borderWidth: 1, borderColor: LINE, borderRadius: 4, padding: 8, marginBottom: 12 },
-  cell: { width: "33.33%", paddingVertical: 3 },
-  label: { fontSize: 7.5, color: GREY, textTransform: "uppercase" },
-  value: { marginTop: 1 },
-  columns: { flexDirection: "row", gap: 12, marginBottom: 12 },
-  column: { flex: 1, borderWidth: 1, borderColor: LINE, borderRadius: 4 },
-  colHead: { backgroundColor: NAVY, color: "#ffffff", fontFamily: "Helvetica-Bold", padding: 6, flexDirection: "row", justifyContent: "space-between" },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: LINE },
-  rowLabel: { flex: 1, paddingRight: 6 },
-  total: { flexDirection: "row", justifyContent: "space-between", padding: 6, fontFamily: "Helvetica-Bold" },
-  net: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "#eff6ff", borderWidth: 1, borderColor: NAVY, borderRadius: 4, padding: 10 },
-  netAmount: { fontSize: 16, fontFamily: "Helvetica-Bold", color: NAVY },
-  footer: { position: "absolute", bottom: 28, left: 36, right: 36, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 6, fontSize: 7.5, color: GREY, flexDirection: "row", justifyContent: "space-between" },
+  page: { paddingVertical: 32, paddingHorizontal: 34, fontSize: 9, fontFamily: "Helvetica", color: "#111827" },
+  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 14 },
+  headerSide: { width: "34%" },
+  headerCenter: { width: "32%", alignItems: "center", paddingTop: 6 },
+  metaRow: { flexDirection: "row", marginBottom: 3 },
+  metaLabel: { fontFamily: "Helvetica-Bold" },
+  blue: { color: BLUE },
+  title: { fontSize: 15, fontFamily: "Helvetica-Bold" },
+  subtitle: { marginTop: 4, fontSize: 10 },
+  brand: { alignItems: "flex-end" },
+  company: { marginTop: 4, fontSize: 9.5, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  box: { borderWidth: 1, borderColor: LINE, marginBottom: 12 },
+  infoRow: { flexDirection: "row" },
+  infoCell: { width: "33.33%", flexDirection: "row", paddingVertical: 6, paddingHorizontal: 8 },
+  infoLabel: { color: "#374151" },
+  infoValue: { fontFamily: "Helvetica-Bold", flex: 1 },
+  columns: { flexDirection: "row", marginBottom: 12 },
+  column: { flex: 1, borderWidth: 1, borderColor: LINE, borderTopWidth: 3, borderTopColor: BLUE },
+  colHead: { paddingVertical: 6, textAlign: "center", fontFamily: "Helvetica-Bold", fontSize: 10, borderBottomWidth: 1, borderBottomColor: LINE },
+  colBody: { height: 230, paddingVertical: 4 },
+  line: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 8, paddingVertical: 4 },
+  lineLabel: { flexShrink: 1, paddingRight: 4 },
+  dots: { flexGrow: 1, flexBasis: 0, borderBottomWidth: 1, borderBottomColor: LINE, borderBottomStyle: "dotted", marginBottom: 2.5, marginHorizontal: 2, minWidth: 8 },
+  lineAmount: { color: BLUE, textAlign: "right", flexShrink: 0 },
+  total: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 7, borderTopWidth: 1, borderTopColor: LINE, fontFamily: "Helvetica-Bold" },
+  netBox: { borderWidth: 1, borderColor: LINE, paddingVertical: 8, paddingHorizontal: 10 },
+  netRow: { flexDirection: "row", marginBottom: 4 },
+  footer: { position: "absolute", bottom: 26, left: 34, right: 34, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 6, fontSize: 7.5, color: GREY, flexDirection: "row", justifyContent: "space-between" },
 });
 
-const pkr = (n: number) => `Rs ${Math.round(n).toLocaleString("en-PK")}`;
-const pkr2 = (n: number) => `Rs ${n.toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-/** The built-in PDF font (WinAnsi) has no arrow glyph. */
-const pdfText = (t: string) => t.replace(/→/g, "=");
+/** Whole rupees with thousands separators: 100,000. */
+const amount = (n: number) => Math.round(n).toLocaleString("en-US");
+/** The built-in PDF font (WinAnsi) has no arrow glyph or other non-Latin-1 characters. */
+const pdfText = (t: string) => t.replace(/→/g, "=").replace(/[‐‑‒–]/g, "-").replace(/×/g, "x");
 const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Karachi" }).format(d);
 
-function Field({ label, value }: { label: string; value: string | number | null }) {
+/** "19/October/2026 9:31 PM" in Pakistan time. */
+export function printDateLabel(d: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Karachi" })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute} ${String(parts.dayPeriod).toUpperCase()}`;
+}
+
+function Meta({ label, value, blue }: { label: string; value: string; blue?: boolean }) {
   return (
-    <View style={s.cell}>
-      <Text style={s.label}>{label}</Text>
-      <Text style={s.value}>{value ?? "—"}</Text>
+    <View style={s.metaRow}>
+      <Text style={s.metaLabel}>{label}: </Text>
+      <Text style={[{ flex: 1 }, blue ? s.blue : {}]}>{pdfText(value)}</Text>
     </View>
   );
 }
 
-function Lines({ title, lines, total }: { title: string; lines: { label: string; amount: number }[]; total: number }) {
+function Info({ label, value }: { label: string; value: string | number | null }) {
+  return (
+    <View style={s.infoCell}>
+      <Text style={s.infoLabel}>{label} : </Text>
+      <Text style={s.infoValue}>{value === null || value === "" ? "--" : pdfText(String(value))}</Text>
+    </View>
+  );
+}
+
+function Lines({ title, lines, total }: { title: "Earning" | "Deduction"; lines: { label: string; amount: number }[]; total: number }) {
   return (
     <View style={s.column}>
-      <View style={s.colHead}><Text>{title}</Text><Text>Amount</Text></View>
-      {lines.length === 0 && <View style={s.row}><Text style={s.muted}>None</Text></View>}
-      {lines.map((l, i) => (
-        <View key={i} style={s.row} wrap={false}>
-          <Text style={s.rowLabel}>{pdfText(l.label)}</Text>
-          <Text>{pkr(l.amount)}</Text>
-        </View>
-      ))}
-      <View style={s.total}><Text>Total {title.toLowerCase()}</Text><Text>{pkr(total)}</Text></View>
+      <Text style={s.colHead}>{title}</Text>
+      <View style={s.colBody}>
+        {lines.map((l, i) => (
+          <View key={i} style={s.line} wrap={false}>
+            <Text style={s.lineLabel}>{pdfText(l.label)}</Text>
+            <View style={s.dots} />
+            <Text style={s.lineAmount}>{amount(l.amount)}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={s.total}>
+        <Text>Total {title}</Text>
+        <Text>{amount(total)}</Text>
+      </View>
     </View>
   );
 }
 
 function PayslipPage({ d }: { d: PayslipData }) {
-  const contact = [d.company.address, d.company.phone, d.company.email].filter(Boolean).join(" · ");
+  const expected = d.kind === "expected";
   return (
     <Page size="A4" style={s.page}>
       <View style={s.header}>
-        <View style={{ maxWidth: "65%", flexDirection: "row", gap: 10 }}>
+        <View style={s.headerSide}>
+          <Meta label="Print Date" value={printDateLabel(d.printDate)} blue />
+          <Meta label="Printed By" value={d.printedBy} blue />
+          <Meta label="Address" value={d.company.address ?? "--"} />
+        </View>
+        <View style={s.headerCenter}>
+          <Text style={s.title}>{expected ? "Expected Payslip" : "Payslip"}</Text>
+          <Text style={s.subtitle}>Month Of {d.period}</Text>
+        </View>
+        <View style={[s.headerSide, s.brand]}>
           {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt */}
-          {d.company.logo ? <Image src={d.company.logo} style={{ width: 42, height: 42, objectFit: "contain" }} /> : null}
-          <View>
-          <Text style={s.company}>{d.company.legalName}</Text>
-          {contact ? <Text style={[s.muted, { marginTop: 3 }]}>{contact}</Text> : null}
-          {d.company.ntn ? <Text style={s.muted}>NTN: {d.company.ntn}</Text> : null}
-          </View>
-        </View>
-        <View>
-          <Text style={s.title}>Payslip</Text>
-          <Text style={{ textAlign: "right", marginTop: 2 }}>{d.period}</Text>
-          <Text style={[s.status, { backgroundColor: d.status === "PAID" ? "#15803d" : NAVY }]}>{d.status === "PAID" ? "PAID" : "APPROVED"}</Text>
+          {d.company.logo ? <Image src={d.company.logo} style={{ width: 70, height: 42, objectFit: "contain" }} /> : null}
+          <Text style={s.company}>{pdfText(d.company.legalName)}</Text>
         </View>
       </View>
 
-      <View style={s.grid}>
-        <Field label="Employee" value={d.employee.name} />
-        <Field label="Employee ID" value={d.employee.code} />
-        <Field label="Department" value={d.employee.department} />
-        <Field label="Designation" value={d.employee.designation} />
-        <Field label="CNIC" value={d.employee.cnicMasked} />
-        <Field label="Bank account" value={d.employee.bank} />
-      </View>
-
-      <View style={s.grid}>
-        <Field label="Days in month" value={d.attendance.daysInMonth} />
-        <Field label="Days employed" value={d.attendance.employedDays} />
-        <Field label="Per-day rate" value={pkr2(d.perDayRate)} />
-        <Field label="Present" value={d.attendance.presentDays} />
-        <Field label="Absent" value={d.attendance.absentDays} />
-        <Field label="Late + missing punch" value={`${d.attendance.lateCount} + ${d.attendance.missingPunchCount} = ${d.attendance.lateDeductionDays} day(s) deducted`} />
+      <View style={s.box}>
+        <View style={s.infoRow}>
+          <Info label="Employee Code" value={d.employee.code} />
+          <Info label="Employee Name" value={d.employee.name} />
+          <Info label="Station" value="Head Office" />
+        </View>
+        <View style={s.infoRow}>
+          <Info label="Department" value={d.employee.department} />
+          <Info label="Sub Department" value={null} />
+          <Info label="Designation" value={d.employee.designation} />
+        </View>
+        <View style={s.infoRow}>
+          <Info label="Cnic No" value={d.employee.cnic} />
+          <Info label="Joining Date" value={d.employee.joiningDate} />
+          <Info label="Monthly Salary" value={amount(d.monthlySalary)} />
+        </View>
       </View>
 
       <View style={s.columns}>
-        <Lines title="Earnings" lines={d.earnings} total={d.totalEarnings} />
-        <Lines title="Deductions" lines={d.deductions} total={d.totalDeductions} />
+        <Lines title="Earning" lines={d.earnings} total={d.totalEarnings} />
+        <Lines title="Deduction" lines={d.deductions} total={d.totalDeductions} />
       </View>
 
-      <View style={s.net} wrap={false}>
-        <View>
-          <Text style={s.label}>Net salary</Text>
-          <Text style={{ marginTop: 3 }}>{rupeesInWords(d.netPay)}</Text>
+      <View style={s.netBox} wrap={false}>
+        <View style={s.netRow}>
+          <Text style={s.metaLabel}>Net Payment : </Text>
+          <Text style={[s.metaLabel, s.blue]}>{amount(d.netPay)}/-</Text>
         </View>
-        <Text style={s.netAmount}>{pkr(d.netPay)}</Text>
+        <View style={{ flexDirection: "row" }}>
+          <Text style={s.metaLabel}>Amount In Words : </Text>
+          <Text style={{ flex: 1 }}>{rupeesInWords(d.netPay)}</Text>
+        </View>
       </View>
 
       <View style={s.footer} fixed>
-        <Text>Computer-generated payslip — no signature required.</Text>
-        <Text>
-          Generated {fmtDate(d.generatedAt)}{d.paidAt ? ` · Paid ${fmtDate(d.paidAt)}` : ""}
-        </Text>
+        <Text>{expected ? "Estimate only - final amounts are set when payroll is approved." : "Computer-generated payslip - no signature required."}</Text>
+        <Text>{expected ? "Expected" : d.status === "PAID" ? `Paid${d.paidAt ? ` ${fmtDate(d.paidAt)}` : ""}` : "Approved"}</Text>
       </View>
     </Page>
   );
 }
 
 export async function renderPayslips(payslips: PayslipData[]): Promise<Buffer> {
+  const first = payslips[0];
+  const name = first?.kind === "expected" ? "Expected payslip" : "Payslip";
   return renderToBuffer(
-    <Document title={payslips.length === 1 ? `Payslip ${payslips[0]!.period} ${payslips[0]!.employee.code}` : `Payslips ${payslips[0]?.period ?? ""}`} author="RFS HCM">
+    <Document title={payslips.length === 1 ? `${name} ${first!.period} ${first!.employee.code}` : `Payslips ${first?.period ?? ""}`} author="RFS HCM">
       {payslips.map((p, i) => <PayslipPage key={i} d={p} />)}
     </Document>,
   );

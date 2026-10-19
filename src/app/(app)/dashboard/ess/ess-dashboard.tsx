@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarCheck2, CalendarDays, Cake, Info, ListChecks, ReceiptText, TriangleAlert } from "lucide-react";
+import { CalendarCheck2, CalendarDays, Cake, HandCoins, Info, ListChecks, ReceiptText, TriangleAlert } from "lucide-react";
 import type { getEssDashboard } from "@/server/services/ess-dashboard";
 import type { WorkClock } from "@/server/services/work-clock";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -147,12 +147,13 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
               { label: "Attendance correction requests", count: null },
               { label: `Leave requests (pending)`, count: data.leaveRequests?.pending ?? 0 },
               { label: `Leave approved this year`, count: data.leaveRequests?.approved ?? 0 },
-              { label: "Advance salary requests", count: null },
+              { label: "Loan requests (pending)", count: s.loans?.pendingRequests ?? 0 },
               { label: "Employee info requests", count: null },
             ]}
             approvals={[
               { label: "Attendance corrections", count: null },
               { label: "Leave requests", count: data.pendingApprovals ?? 0 },
+              ...(data.canManageLoans ? [{ label: "Loan requests", count: data.pendingLoanApprovals ?? 0 }] : []),
             ]}
           />
         </Card>
@@ -234,9 +235,17 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
                         <dt>{s.payslip.status === "ESTIMATE" ? "Estimated net salary" : "Net salary"}</dt>
                         <dd className="tabular-nums"><PrivateAmount value={formatPKR(s.payslip.netPay)} /></dd>
                       </div>
+                      {s.payslip.status === "ESTIMATE" && s.payslip.earnedToDate && s.payslip.earnedToDate.days > 0 && (
+                        <div className="flex justify-between gap-4 rounded-md bg-primary/10 px-3 py-2 font-medium text-primary">
+                          <dt>Earned till today ({earnedRange(s.payslip.earnedToDate)})</dt>
+                          <dd className="shrink-0 tabular-nums"><PrivateAmount value={formatPKR(s.payslip.earnedToDate.amount)} /></dd>
+                        </div>
+                      )}
                     </dl>
-                    {s.payslip.itemId && (
+                    {s.payslip.itemId ? (
                       <a href={`/api/v1/payslips/${s.payslip.itemId}`} target="_blank" rel="noopener" className="text-sm font-medium text-primary hover:underline">Download payslip (PDF)</a>
+                    ) : (
+                      <a href={`/api/v1/payslips/expected?employee=${encodeURIComponent(s.id)}&period=${data.period}`} target="_blank" rel="noopener" className="text-sm font-medium text-primary hover:underline">View expected payslip (PDF)</a>
                     )}
                     {s.payslip.warnings.length > 0 && (
                       <ul className="grid gap-1 text-xs text-muted-foreground">{s.payslip.warnings.map((w) => <li key={w}>• {w}</li>)}</ul>
@@ -255,11 +264,25 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
             ))}
           </ul>
           {s.payHistory.length === 0 && <p className="border-t px-4 py-6 text-center text-sm text-muted-foreground">No finalised payslips yet.</p>}
+          {s.loans && s.loans.count > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t bg-muted/40 px-4 py-2.5 text-sm">
+              <span className="flex items-center gap-2"><HandCoins className="size-4 text-primary" /> Loan balance{s.loans.count > 1 ? ` (${s.loans.count} loans)` : ""}</span>
+              <Link href="/loans" className="text-primary hover:underline"><PrivateAmount value={formatPKR(s.loans.outstanding)} /></Link>
+            </div>
+          )}
           </PrivacyGroup>
         </Card>
       </div>
     </div>
   );
+}
+
+/** "1–19 Oct" */
+function earnedRange(e: { from: string; to: string }) {
+  const month = MONTHS[Number(e.to.slice(5, 7)) - 1];
+  const from = Number(e.from.slice(8, 10));
+  const to = Number(e.to.slice(8, 10));
+  return from === to ? `${to} ${month}` : `${from}–${to} ${month}`;
 }
 
 function Row({ label, value, muted }: { label: string; value: React.ReactNode; muted?: boolean }) {

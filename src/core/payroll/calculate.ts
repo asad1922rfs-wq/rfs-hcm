@@ -10,10 +10,14 @@
 //   * Public holidays are off days like the weekend: never absent, never "not synced".
 //   * Days with no machine record are NOT deducted — they are reported as warnings for HR to check.
 //   * Money lines are rounded to whole rupees.
+//   * Loan installments come last and only take what is left after every other deduction (net pay never < 0).
+
+import { capLoanDeductions, loanLineLabel, type LoanDue } from "@/core/loans/schedule";
 
 export type AttendanceStatusCode = "PRESENT" | "LATE" | "EARLY" | "HALF_DAY" | "SHORT_DAY" | "ABSENT" | "LEAVE" | "MISSING";
 
-export type PayLine = { kind: "EARNING" | "DEDUCTION"; code: string; label: string; amount: number };
+/** `loanId` is set on LOAN lines so approving the run can record each loan's repayment. */
+export type PayLine = { kind: "EARNING" | "DEDUCTION"; code: string; label: string; amount: number; loanId?: string };
 
 export type PayInput = {
   year: number;
@@ -30,6 +34,8 @@ export type PayInput = {
   adjustments: readonly { kind: "EARNING" | "DEDUCTION"; label: string; amount: number }[];
   /** Dates of approved UNPAID leave (paid leave is not deducted). */
   unpaidLeaveDates?: ReadonlySet<string>;
+  /** Loan installments due this month, oldest loan first (src/core/loans/schedule.ts loanDueFor). */
+  loans?: readonly LoanDue[];
 };
 
 export type PayResult = {
@@ -152,8 +158,15 @@ export function calculatePay(input: PayInput): PayResult {
     lines.push({ kind: a.kind, code: a.kind === "EARNING" ? "ADJ_EARNING" : "ADJ_DEDUCTION", label: a.label, amount: rupees(a.amount) });
   }
 
-  const earnings = lines.filter((l) => l.kind === "EARNING").reduce((s, l) => s + l.amount, 0);
-  const deductions = lines.filter((l) => l.kind === "DEDUCTION").reduce((s, l) => s + l.amount, 0);
+  const sum = (kind: PayLine["kind"]) => lines.filter((l) => l.kind === kind).reduce((s, l) => s + l.amount, 0);
+  if (input.loans?.length) {
+    const { deductions: loanLines, shortfall } = capLoanDeductions(input.loans, sum("EARNING") - sum("DEDUCTION"));
+    for (const l of loanLines) lines.push({ kind: "DEDUCTION", code: "LOAN", label: loanLineLabel(l), amount: l.amount, loanId: l.loanId });
+    if (shortfall > 0) warnings.push(`Loan installments reduced by ${shortfall} so net pay is not negative — the balance stays outstanding`);
+  }
+
+  const earnings = sum("EARNING");
+  const deductions = sum("DEDUCTION");
   let netPay = earnings - deductions;
   if (netPay < 0) {
     warnings.push(`Deductions exceed earnings by ${-netPay} — net pay set to 0`);

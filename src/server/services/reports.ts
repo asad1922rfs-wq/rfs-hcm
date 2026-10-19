@@ -208,6 +208,7 @@ const DEDUCTION_COLUMNS = [
   { code: "ABSENT", header: "Absent" },
   { code: "UNPAID_LEAVE", header: "Unpaid Leave" },
   { code: "LATE", header: "Late / Missing Punch" },
+  { code: "LOAN", header: "Loan" },
   { code: "ADJ_DEDUCTION", header: "Other Deductions" },
 ] as const;
 

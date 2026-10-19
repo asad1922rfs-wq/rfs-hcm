@@ -3,17 +3,19 @@ import { db } from "@/server/db";
 import { can, type Actor } from "@/server/auth/session";
 import { canAccessEmployee, scopedEmployeeWhere } from "@/server/auth/scope";
 import { attendanceDaysForMonth, attendanceSyncStatus } from "@/server/services/attendance";
-import { salaryInForce } from "@/server/services/employees";
 import { buildMonthCalendar, summariseMonth, type DayRecord } from "@/core/attendance/month-calendar";
 import type { DayStatus } from "@/core/attendance/day-status";
 import { localTime } from "@/server/services/attendance-edit";
 import { to12h } from "@/lib/format";
-import { calculatePay, type AttendanceStatusCode, type PayLine } from "@/core/payroll/calculate";
+import type { PayLine } from "@/core/payroll/calculate";
+import type { EarnedToDate } from "@/core/payroll/earned-to-date";
+import { estimatePayslip } from "@/server/services/pay-estimate";
 import { employeePayHistory } from "@/server/services/payroll";
-import { approvedLeaveDates, leaveBalances, pendingLeaveCount } from "@/server/services/leave";
+import { leaveBalances, pendingLeaveCount } from "@/server/services/leave";
 import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/lib/dates";
 import { asStringArray, attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidaysBetween } from "@/server/services/holidays";
+import { activeLoanSummary, pendingLoanCount } from "@/server/services/loans";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
 function clockLabel(instant: Date | null, workDate: string): string | null {
@@ -89,7 +91,10 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
   const anniversaryYears = anniversary.getTime() === today.getTime() ? yearsBetween(employee.joiningDate, today) : 0;
 
   // Pay for the month: the approved payroll if there is one, otherwise an estimate from the same payroll engine.
-  let payslip: null | { itemId: string | null; status: "ESTIMATE" | "APPROVED" | "PAID"; netPay: number; gross: number; perDayRate: number; daysInMonth: number; lines: PayLine[]; warnings: string[] } = null;
+  let payslip: null | {
+    itemId: string | null; status: "ESTIMATE" | "APPROVED" | "PAID"; netPay: number; gross: number; perDayRate: number; daysInMonth: number;
+    lines: PayLine[]; warnings: string[]; earnedToDate: EarnedToDate | null;
+  } = null;
   let payHistory: { id: string; label: string; netPay: number; status: string }[] = [];
   if (await canAccessEmployee(actor, "salary.read", employee.id)) {
     const history = await employeePayHistory(employee.id);
@@ -100,25 +105,20 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
         itemId: approved.id,
         status: approved.run.status === "PAID" ? "PAID" : "APPROVED", netPay: Number(approved.netPay), gross: Number(approved.grossSalary),
         perDayRate: Number(approved.perDayRate), daysInMonth: approved.daysInMonth, lines: approved.lines as PayLine[], warnings: asStringArray(approved.warnings),
+        earnedToDate: null,
       };
     } else if (!monthBeforeTracking) {
-      const salary = await salaryInForce(employee.id, lastDayOfPeriod < today ? lastDayOfPeriod : today);
-      const r = calculatePay({
-        year, month, today: todayIso, joiningDate: toDateOnlyString(employee.joiningDate),
-        exitDate: employee.exitDate ? toDateOnlyString(employee.exitDate) : null, weekendDays: weekendOf(company), holidays: new Set(holidays.keys()),
-        salary: salary ? { basic: Number(salary.basicSalary), allowances: salary.allowances.map((a) => ({ name: a.name, amount: Number(a.amount) })) } : null,
-        days: new Map(rows.map((r) => [toDateOnlyString(r.workDate), r.status as AttendanceStatusCode])),
-        adjustments: [],
-        unpaidLeaveDates: new Set([...((await approvedLeaveDates([employee.id], toDateOnlyString(new Date(Date.UTC(year, month - 1, 1))), toDateOnlyString(lastDayOfPeriod))).get(employee.id) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
-      });
-      if (salary) payslip = { itemId: null, status: "ESTIMATE", netPay: r.netPay, gross: r.gross, perDayRate: r.perDayRate, daysInMonth: r.daysInMonth, lines: r.lines, warnings: r.warnings };
+      const r = await estimatePayslip(employee.id, year, month);
+      if (r) payslip = { itemId: null, status: "ESTIMATE", netPay: r.netPay, gross: r.gross, perDayRate: r.perDayRate, daysInMonth: r.daysInMonth, lines: r.lines, warnings: r.warnings, earnedToDate: r.earnedToDate };
     }
   }
 
-  const [leave, myRequests, approvals] = await Promise.all([
+  const [leave, myRequests, approvals, loans, loanApprovals] = await Promise.all([
     leaveBalances(employee.id, today.getUTCFullYear()),
     db.leaveRequest.groupBy({ by: ["status"], where: { employeeId: employee.id, startDate: { gte: new Date(Date.UTC(today.getUTCFullYear(), 0, 1)) } }, _count: { _all: true } }),
     pendingLeaveCount(actor),
+    canAccessEmployee(actor, "loan.read", employee.id).then((ok) => (ok ? activeLoanSummary(employee.id) : null)),
+    pendingLoanCount(actor),
   ]);
   const requestCount = (s: string) => myRequests.find((r) => r.status === s)?._count._all ?? 0;
 
@@ -126,6 +126,8 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     leave,
     leaveRequests: { pending: requestCount("PENDING"), approved: requestCount("APPROVED") },
     pendingApprovals: approvals,
+    pendingLoanApprovals: loanApprovals,
+    canManageLoans: can(actor, "loan.manage", "all"),
     subject: {
       ...employee,
       isSelf: employee.id === actor.employeeId,
@@ -136,6 +138,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       summaryUntil,
       payslip,
       payHistory,
+      loans,
     },
     employeeOptions,
     canPickEmployee,

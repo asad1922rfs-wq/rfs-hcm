@@ -66,4 +66,18 @@ describe("system roles", () => {
     expect(hasScope(SYSTEM_ROLES.HR_ADMIN.permissions, "payroll.prepare", "all")).toBe(true);
     expect(resolveScope(SYSTEM_ROLES.HR_ADMIN.permissions, "payroll.approve")).toBeNull();
   });
+
+  it("everyone can request a loan; only HR and Finance manage loans", () => {
+    for (const key of ["EMPLOYEE", "MANAGER", "HR_ADMIN", "FINANCE"] as const) {
+      expect(hasScope(SYSTEM_ROLES[key].permissions, "loan.request", "self"), key).toBe(true);
+    }
+    expect(resolveScope(SYSTEM_ROLES.EMPLOYEE.permissions, "loan.read")).toBe("self");
+    expect(resolveScope(SYSTEM_ROLES.MANAGER.permissions, "loan.read")).toBe("team");
+    expect(resolveScope(SYSTEM_ROLES.MANAGER.permissions, "loan.manage")).toBeNull();
+    expect(resolveScope(SYSTEM_ROLES.EMPLOYEE.permissions, "loan.manage")).toBeNull();
+    for (const key of ["HR_ADMIN", "FINANCE", "SUPER_ADMIN"] as const) {
+      expect(hasScope(SYSTEM_ROLES[key].permissions, "loan.manage", "all"), key).toBe(true);
+      expect(hasScope(SYSTEM_ROLES[key].permissions, "loan.read", "all"), key).toBe(true);
+    }
+  });
 });

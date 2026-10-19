@@ -3,7 +3,7 @@ import { hasScope, type Permission, type Scope } from "@/server/auth/permissions
 
 export type NavIcon =
   | "dashboard" | "employees" | "profile" | "attendance" | "leave" | "payroll" | "payslips" | "reports"
-  | "devices" | "company" | "organisation" | "shifts" | "users" | "roles" | "audit" | "holidays";
+  | "devices" | "company" | "organisation" | "shifts" | "users" | "roles" | "audit" | "holidays" | "loans";
 
 export type NavItem = { href: string; label: string; icon: NavIcon; soon?: boolean };
 export type NavSection = { title: string; items: NavItem[] };
@@ -31,6 +31,7 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
     items: [
       { href: "/payroll", label: "Payroll", icon: "payroll", permission: "payroll.read", scope: "all" },
       { href: "/payslips", label: "Payslips", icon: "payslips", permission: "payslip.read", requiresEmployee: true },
+      { href: "/loans", label: "Loans", icon: "loans", permission: "loan.read" },
       { href: "/reports", label: "Reports", icon: "reports", permission: "report.read", scope: "team" },
     ],
   },

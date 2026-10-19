@@ -9,6 +9,7 @@ import { approvedLeaveDates } from "@/server/services/leave";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
+import { loanDeductionsFor, recordPayrollRepayments } from "@/server/services/loans";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const monthName = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
@@ -44,7 +45,10 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
     },
   });
 
-  const leaves = await approvedLeaveDates(employees.map((e) => e.id), start, end);
+  const [leaves, loans] = await Promise.all([
+    approvedLeaveDates(employees.map((e) => e.id), start, end),
+    loanDeductionsFor(employees.map((e) => e.id), run.year, run.month),
+  ]);
 
   const existing = await db.payrollItem.findMany({
     where: { runId: run.id, ...(onlyEmployeeId ? { employeeId: onlyEmployeeId } : {}) },
@@ -68,6 +72,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       days: new Map(e.attendanceDays.map((d) => [toDateOnlyString(d.workDate), d.status as AttendanceStatusCode])),
       adjustments: (prior?.adjustments ?? []).map((a) => ({ kind: a.kind, label: a.label, amount: Number(a.amount) })),
       unpaidLeaveDates: new Set([...(leaves.get(e.id) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
+      loans: loans.get(e.id) ?? [],
     });
     const data = {
       employeeCode: e.employeeCode,
@@ -187,7 +192,14 @@ export async function approveRun(actor: Actor, runId: string) {
   // Maker–checker: whoever submitted cannot approve.
   if (run.submittedById === actor.userId) throw new ForbiddenError("You submitted this payroll, so someone else (Finance) must approve it.");
   const totals = await db.payrollItem.aggregate({ where: { runId }, _sum: { netPay: true }, _count: true });
-  await db.payrollRun.update({ where: { id: runId }, data: { status: "APPROVED", approvedById: actor.userId, approvedAt: new Date() } });
+  // Loan installments in the run become recorded repayments together with the approval, or neither happens.
+  await db.$transaction(
+    async (tx) => {
+      await tx.payrollRun.update({ where: { id: runId }, data: { status: "APPROVED", approvedById: actor.userId, approvedAt: new Date() } });
+      await recordPayrollRepayments(tx, actor, run);
+    },
+    { timeout: 30_000 },
+  );
   await recordAudit({
     actor, action: "payroll.approve", entityType: "PayrollRun", entityId: runId,
     after: { month: monthName(run.year, run.month), employees: totals._count, totalNet: totals._sum.netPay?.toString() ?? "0" },

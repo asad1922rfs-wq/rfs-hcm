@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Building2, CalendarCheck, CalendarDays, ClipboardList, Clock, Fingerprint, LayoutDashboard, Network, ReceiptText,
+  Building2, CalendarCheck, CalendarDays, ClipboardList, Clock, Fingerprint, HandCoins, LayoutDashboard, Network, ReceiptText,
   PartyPopper, ScrollText, ShieldCheck, UserCircle, UserCog, Users, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ const ICONS: Record<NavIcon, React.ComponentType<{ className?: string }>> = {
   roles: ShieldCheck,
   audit: ScrollText,
   holidays: PartyPopper,
+  loans: HandCoins,
 };
 
 export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; onNavigate?: () => void }) {

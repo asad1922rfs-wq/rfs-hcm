@@ -157,6 +157,7 @@ model Employee {
   attendanceAdjustments AttendanceAdjustment[]
   payrollItems      PayrollItem[]
   leaveRequests     LeaveRequest[]
+  loans             Loan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -506,6 +507,7 @@ model PayrollItem {
   /// JSON array of strings
   warnings          Json
   adjustments       PayrollAdjustment[]
+  loanRepayments    LoanRepayment[]
 
   @@unique([runId, employeeId])
   @@index([runId])
@@ -572,4 +574,83 @@ model LeaveRequest {
 
   @@index([employeeId, startDate])
   @@index([status])
+}
+
+// ───────────────────────────── Loans ─────────────────────────────
+
+enum LoanStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum LoanRepaymentSource {
+  PAYROLL
+  CASH
+}
+
+/// Interest-free salary advance, repaid by fixed monthly installments deducted in payroll (see src/core/loans/schedule.ts).
+model Loan {
+  id                String          @id @default(cuid())
+  employeeId        String
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// Whole rupees
+  amount            Decimal         @db.Decimal(14, 2)
+  installments      Int
+  /// Regular monthly installment (amount ÷ installments, rounded); the last one takes the remainder
+  installmentAmount Decimal         @db.Decimal(14, 2)
+  /// First payroll month the installment is deducted in
+  startYear         Int
+  startMonth        Int
+  reason            String          @db.Text
+  status            LoanStatus      @default(PENDING)
+  requestedById     String?
+  decidedById       String?
+  decidedAt         DateTime?
+  decisionNote      String?         @db.VarChar(1000)
+  cancelledById     String?
+  cancelledAt       DateTime?
+  cancelNote        String?         @db.VarChar(1000)
+  repayments        LoanRepayment[]
+  pauses            LoanPause[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([employeeId, status])
+  @@index([status])
+}
+
+/// Money received against a loan. PAYROLL rows are written when the payroll run is approved, never for drafts.
+model LoanRepayment {
+  id            String              @id @default(cuid())
+  loanId        String
+  loan          Loan                @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  amount        Decimal             @db.Decimal(14, 2)
+  source        LoanRepaymentSource
+  payrollItemId String?
+  payrollItem   PayrollItem?        @relation(fields: [payrollItemId], references: [id], onDelete: SetNull)
+  /// Payroll month (PAYROLL) or month of the payment date (CASH)
+  year          Int
+  month         Int
+  paidOn        DateTime            @db.Date
+  note          String?             @db.VarChar(500)
+  createdById   String?
+  createdAt     DateTime            @default(now())
+
+  @@unique([loanId, payrollItemId])
+}
+
+/// A month in which no installment is deducted for the loan; the schedule moves on by a month.
+model LoanPause {
+  id          String   @id @default(cuid())
+  loanId      String
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  year        Int
+  month       Int
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([loanId, year, month])
 }
