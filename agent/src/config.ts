@@ -14,6 +14,11 @@ export type AgentConfig = {
   allowedSerials: string[];
   /** Device timezone offset in hours sent in the ADMS handshake (Pakistan = 5) */
   timezoneHours: number;
+  /**
+   * Minutes to add to real time in the clock the device copies from us (the HTTP Date header it reads at
+   * handshake). -2 keeps the device 2 minutes behind real time. This PC's own clock is not changed.
+   */
+  deviceClockOffsetMinutes: number;
   dataDir: string;
 };
 
@@ -35,6 +40,7 @@ export function loadConfig(): AgentConfig {
     listenHost: String(raw.listenHost ?? "0.0.0.0"),
     allowedSerials: Array.isArray(raw.allowedSerials) ? raw.allowedSerials.map(String) : [],
     timezoneHours: Number(raw.timezoneHours ?? 5),
+    deviceClockOffsetMinutes: Number(raw.deviceClockOffsetMinutes ?? 0),
     dataDir: resolve(root, String(raw.dataDir ?? "data")),
   };
   if (!/^https?:\/\//.test(cfg.serverUrl)) throw new Error("serverUrl must start with http:// or https://");

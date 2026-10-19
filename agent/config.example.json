@@ -6,5 +6,6 @@
   "listenHost": "0.0.0.0",
   "allowedSerials": [],
   "timezoneHours": 5,
+  "deviceClockOffsetMinutes": 0,
   "dataDir": "data"
 }

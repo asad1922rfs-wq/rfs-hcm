@@ -75,7 +75,9 @@ export function startAdmsServer(cfg: AgentConfig, outbox: Outbox, log: (msg: str
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const reply = (status: number, text: string) => {
-      res.writeHead(status, { "Content-Type": "text/plain", Connection: "close" });
+      // The device sets its clock from this header, so it follows this PC's (internet-synced) time plus the offset.
+      const deviceNow = new Date(Date.now() + cfg.deviceClockOffsetMinutes * 60_000);
+      res.writeHead(status, { "Content-Type": "text/plain", Connection: "close", Date: deviceNow.toUTCString() });
       res.end(text);
     };
     try {
