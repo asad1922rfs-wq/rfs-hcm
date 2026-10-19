@@ -44,7 +44,6 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
       { href: "/settings/devices", label: "Biometric devices", icon: "devices", permission: "device.manage", scope: "all" },
       { href: "/settings/users", label: "Users", icon: "users", permission: "user.manage", scope: "all" },
       { href: "/settings/roles", label: "Roles & permissions", icon: "roles", permission: "role.manage", scope: "all" },
-      { href: "/settings/audit-log", label: "Audit log", icon: "audit", permission: "audit.read", scope: "all" },
     ],
   },
 ];
