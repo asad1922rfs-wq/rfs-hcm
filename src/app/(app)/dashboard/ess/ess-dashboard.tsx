@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarCheck2, CalendarDays, Cake, Info, ListChecks, ReceiptText, TriangleAlert } from "lucide-react";
 import type { getEssDashboard } from "@/server/services/ess-dashboard";
+import type { WorkClock } from "@/server/services/work-clock";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,9 +12,10 @@ import { initials } from "@/lib/utils";
 import { AttendanceFlagChart, AttendanceLegend, type ChartDay } from "./attendance-chart";
 import { DashboardFilters } from "./filters";
 import { RequestsCard } from "./requests-card";
+import { WorkClockPanel } from "./work-clock";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
-type Data = Awaited<ReturnType<typeof getEssDashboard>>;
+type Data = Awaited<ReturnType<typeof getEssDashboard>> & { workClock?: WorkClock | null };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const FULL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -98,6 +100,7 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
             <Link href={s.isSelf ? "/me" : `/employees/${s.id}`} className="mt-1 flex items-center gap-1 text-sm text-primary hover:underline">
               <Info className="size-3.5" /> {s.isSelf ? "My info" : "Employee info"}
             </Link>
+            {data.workClock && <WorkClockPanel clock={data.workClock} />}
           </div>
           <div className="grid grid-cols-2 border-t text-center text-xs text-muted-foreground">
             <div className="flex flex-col items-center gap-2 border-r px-2 py-4">

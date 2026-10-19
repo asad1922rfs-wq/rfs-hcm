@@ -5,6 +5,7 @@ import {
 import { can, requireActor, type Actor } from "@/server/auth/session";
 import { getDashboardData } from "@/server/services/dashboard";
 import { getEssDashboard } from "@/server/services/ess-dashboard";
+import { todayWorkClock } from "@/server/services/work-clock";
 import { pendingLeaveCount } from "@/server/services/leave";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -39,7 +40,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <HrOverview actor={actor} />
       ) : (
         <EssDashboard
-          data={await getEssDashboard(actor, { employeeId: sp.employee, period: sp.period === "previous" ? "previous" : "current" })}
+          data={await getEssDashboard(actor, { employeeId: sp.employee, period: sp.period === "previous" ? "previous" : "current" }).then(async (d) => ({
+            ...d,
+            workClock: d.subject ? await todayWorkClock(d.subject.id) : null,
+          }))}
           canImport={can(actor, "attendance.manage", "all")}
           showApprovals={can(actor, "leave.approve", "team") || can(actor, "attendance.approve", "team")}
         />
