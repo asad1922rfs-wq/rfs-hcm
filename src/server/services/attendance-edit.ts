@@ -13,7 +13,7 @@ import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
 
 const MAX_DAY_MINUTES = 20 * 60;
-/** A lone check-out before this time is taken as after midnight (e.g. 00:30 on a 2 PM–11 PM shift). */
+/** Without a shift, a lone check-out before this time is taken as after midnight (e.g. 00:30). */
 const NEXT_DAY_CUTOFF_MIN = 6 * 60;
 
 /** Local "HH:MM" for an instant, with a "+1" marker when it falls on the day after the work date. */
@@ -54,17 +54,24 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
 }
 
 /**
- * Turn "HH:MM" inputs into instants on the work date. A check-out at or before the check-in (or, on its own,
- * before 6 AM) falls on the next day. Times not given fall back to `fallback` (an existing manual change).
+ * Turn "HH:MM" inputs into instants on the work date. A check-out at or before the check-in falls on the next
+ * day. A check-out given on its own falls on the next day when it is before the shift start (12:00 on a
+ * 3 PM–12 AM shift means midnight, not noon). Times not given fall back to `fallback` (an existing manual change).
  */
-function resolveTimes(date: string, input: Pick<AdjustmentInput, "checkIn" | "checkOut">, fallback?: { checkIn: Date | null; checkOut: Date | null }) {
+function resolveTimes(
+  date: string,
+  input: Pick<AdjustmentInput, "checkIn" | "checkOut">,
+  shiftStartMin: number | null,
+  fallback?: { checkIn: Date | null; checkOut: Date | null },
+) {
   const inMin = input.checkIn ? parseTimeOfDay(input.checkIn) : null;
   const checkIn = inMin !== null ? instantAt(date, inMin) : (fallback?.checkIn ?? null);
   let checkOut: Date | null = fallback?.checkOut ?? null;
   if (input.checkOut) {
     let outMin = parseTimeOfDay(input.checkOut);
     const reference = checkIn ? Math.round((checkIn.getTime() - instantAt(date, 0).getTime()) / 60_000) : null;
-    if (reference !== null ? outMin <= reference : outMin < NEXT_DAY_CUTOFF_MIN) outMin += 1440;
+    const cutoff = shiftStartMin ?? NEXT_DAY_CUTOFF_MIN;
+    if (reference !== null ? outMin <= reference : outMin < cutoff) outMin += 1440;
     checkOut = instantAt(date, outMin);
   }
   if (checkIn && checkOut) {
@@ -84,14 +91,28 @@ function snapshot(day: { status: string; firstIn: Date | null; lastOut: Date | n
   };
 }
 
+type ShiftWithOverrides = Omit<DayAwareShift, "overrides"> & {
+  dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[];
+};
+
+const defaultShift = () => db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } });
+
+function shiftStartFor(shift: ShiftWithOverrides | null, date: string): number | null {
+  return shift ? ruleForDate({ ...shift, overrides: shift.dayOverrides }, date).startMinute : null;
+}
+
 export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentInput & { employeeId: string; date: string }) {
   const date = await validateAdjustment(actor, input.date, input, false);
-  const employee = await db.employee.findUnique({ where: { id: input.employeeId }, select: { id: true, joiningDate: true, exitDate: true } });
+  const employee = await db.employee.findUnique({
+    where: { id: input.employeeId },
+    select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
+  });
   if (!employee) throw new NotFoundError("Employee not found.");
   if (date < toDateOnlyString(employee.joiningDate)) throw new AppError("That date is before the employee's joining date.");
   if (employee.exitDate && date > toDateOnlyString(employee.exitDate)) throw new AppError("That date is after the employee's exit date.");
 
-  const { checkIn, checkOut } = resolveTimes(date, input);
+  const shiftStart = shiftStartFor(employee.shift ?? (await defaultShift()), date);
+  const { checkIn, checkOut } = resolveTimes(date, input, shiftStart);
   const workDate = new Date(`${date}T00:00:00Z`);
   const key = { employeeId_workDate: { employeeId: employee.id, workDate } };
   const before = await db.attendanceDay.findUnique({ where: key });
@@ -121,10 +142,14 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
   const workDate = new Date(`${date}T00:00:00Z`);
 
   const [employees, existing, beforeDays] = await Promise.all([
-    db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, joiningDate: true, exitDate: true } }),
+    db.employee.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, fullName: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
+    }),
     db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate } }),
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate } }),
   ]);
+  const fallbackShift = await defaultShift();
   const existingBy = new Map(existing.map((a) => [a.employeeId, a]));
   const beforeBy = new Map(beforeDays.map((d) => [d.employeeId, d]));
 
@@ -135,7 +160,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     if (e.exitDate && date > toDateOnlyString(e.exitDate)) { skipped.push({ name: e.fullName, reason: "had left by this date" }); continue; }
     let times;
     try {
-      times = resolveTimes(date, input, existingBy.get(e.id));
+      times = resolveTimes(date, input, shiftStartFor(e.shift ?? fallbackShift, date), existingBy.get(e.id));
     } catch (err) {
       skipped.push({ name: e.fullName, reason: err instanceof AppError ? err.message : "invalid times" });
       continue;
