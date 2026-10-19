@@ -205,6 +205,25 @@ export async function removeAttendanceAdjustment(actor: Actor, employeeId: strin
   });
 }
 
+/** Remove the manual change for many employees on one date; machine times apply again. */
+export async function bulkRemoveAttendanceAdjustments(actor: Actor, employeeIds: string[], dateStr: string) {
+  assertPermission(actor, "attendance.edit", "all");
+  const date = toDateOnlyString(parseDateOnly(dateStr));
+  const workDate = new Date(`${date}T00:00:00Z`);
+  if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked.");
+  const existing = await db.attendanceAdjustment.findMany({ where: { employeeId: { in: [...new Set(employeeIds)] }, workDate } });
+  if (existing.length === 0) return { removed: 0 };
+  await db.attendanceAdjustment.deleteMany({ where: { id: { in: existing.map((a) => a.id) } } });
+  await recomputeAttendance({ employeeIds: existing.map((a) => a.employeeId), from: date, to: date });
+  for (const a of existing) {
+    await recordAudit({
+      actor, action: "attendance.adjust_removed", entityType: "Employee", entityId: a.employeeId,
+      before: { date, checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, batchSize: existing.length },
+    });
+  }
+  return { removed: existing.length };
+}
+
 // ───────────── Read ─────────────
 
 export type RegisterRow = {

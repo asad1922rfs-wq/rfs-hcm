@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  ADJUSTMENT_CATEGORIES, bulkSaveAttendanceAdjustments, removeAttendanceAdjustment, saveAttendanceAdjustment,
+  ADJUSTMENT_CATEGORIES, bulkRemoveAttendanceAdjustments, bulkSaveAttendanceAdjustments, removeAttendanceAdjustment, saveAttendanceAdjustment,
 } from "@/server/services/attendance-edit";
 import type { ActionResult } from "@/server/errors";
 
@@ -48,6 +48,15 @@ export async function bulkAdjustmentAction(
     const result = await bulkSaveAttendanceAdjustments(await requireActor(), { employeeIds: ids, date, ...parse(fd) });
     refresh(ids);
     return { ok: true, data: result, message: `Updated ${result.updated} employee${result.updated === 1 ? "" : "s"}.` };
+  });
+}
+
+export async function bulkRemoveAdjustmentAction(employeeIds: string[], date: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const ids = z.array(z.string().min(1).max(40)).max(500).parse(employeeIds);
+    const { removed } = await bulkRemoveAttendanceAdjustments(await requireActor(), ids, date);
+    refresh(ids);
+    return { ok: true, message: removed ? `Removed ${removed} manual change${removed === 1 ? "" : "s"} — machine times restored.` : "None of the selected employees had a manual change on this date." };
   });
 }
 

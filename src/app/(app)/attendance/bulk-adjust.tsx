@@ -1,19 +1,31 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useState } from "react";
-import { Loader2, Users } from "lucide-react";
+import { startTransition, useActionState, useEffect, useState, useTransition } from "react";
+import { Loader2, RotateCcw, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FormMessage } from "@/components/form";
 import { AdjustmentFields } from "./adjustment-fields";
-import { bulkAdjustmentAction } from "./edit-actions";
+import { bulkAdjustmentAction, bulkRemoveAdjustmentAction } from "./edit-actions";
+
+const longDate = (date: string) =>
+  new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 
 /** Appears above the daily register when employees are selected. */
 export function BulkAdjustBar({ date, employees, onClear }: { date: string; employees: { id: string; name: string }[]; onClear: () => void }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(bulkAdjustmentAction.bind(null, employees.map((e) => e.id), date), null);
   const fe = state && !state.ok ? state.fieldErrors : undefined;
+  const [removing, startRemove] = useTransition();
+
+  const removeChanges = () => {
+    if (!window.confirm(`Remove the manual changes on ${longDate(date)} for ${employees.length} employee${employees.length === 1 ? "" : "s"}? Their machine times will apply again.`)) return;
+    startRemove(async () => {
+      const res = await bulkRemoveAdjustmentAction(employees.map((e) => e.id), date);
+      if (res.ok) { toast.success(res.message); onClear(); } else toast.error(res.error);
+    });
+  };
 
   useEffect(() => {
     if (!state?.ok) return;
@@ -30,6 +42,9 @@ export function BulkAdjustBar({ date, employees, onClear }: { date: string; empl
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 text-sm">
       <span><strong>{employees.length}</strong> selected</span>
       <Button size="sm" variant="ghost" onClick={onClear}>Clear</Button>
+      <Button size="sm" variant="outline" onClick={removeChanges} disabled={removing}>
+        {removing ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />} Remove manual changes
+      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button size="sm"><Users className="size-4" /> Bulk edit selected</Button>
@@ -37,8 +52,8 @@ export function BulkAdjustBar({ date, employees, onClear }: { date: string; empl
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Bulk edit · {employees.length} employee{employees.length === 1 ? "" : "s"}</DialogTitle>
+            <p className="rounded-md bg-primary/10 px-3 py-2 text-base font-semibold text-primary">Date: {longDate(date)}</p>
             <DialogDescription>
-              {new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}.
               The same times apply to everyone selected; machine punches are never changed and every change is logged per employee.
             </DialogDescription>
           </DialogHeader>
