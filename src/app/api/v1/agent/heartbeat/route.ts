@@ -1,6 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { agentHeartbeat, authenticateAgent, heartbeatSchema } from "@/server/services/devices";
-import { recomputeAttendance } from "@/server/services/attendance";
+import { pruneBeforeAttendanceStart, recomputeAttendance } from "@/server/services/attendance";
 import { addDaysIso } from "@/core/attendance/engine";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 
@@ -20,7 +20,14 @@ function refreshRecentAttendance() {
   const today = toDateOnlyString(todayInPKT());
   // After a deploy or restart, recalculate from the start of last month so changed rules apply to open months too.
   const from = firstSinceStart ? `${addMonthsIso(today.slice(0, 7), -1)}-01` : addDaysIso(today, -1);
-  after(() => recomputeAttendance({ from, to: today }).catch((err) => console.error("attendance refresh failed", err)));
+  after(async () => {
+    try {
+      if (firstSinceStart) await pruneBeforeAttendanceStart();
+      await recomputeAttendance({ from, to: today });
+    } catch (err) {
+      console.error("attendance refresh failed", err);
+    }
+  });
 }
 
 /** "YYYY-MM" shifted by n months. */

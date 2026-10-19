@@ -137,6 +137,14 @@ export async function relinkEmployeePunches(employeeId: string, deviceUserId: st
  * A working day with no punches is ABSENT only when device data exists for a later date
  * (so we know that day has been synced); otherwise no row is stored and the day shows as "not synced".
  */
+/** Remove attendance records before the company's attendance start (machine punches are kept). */
+export async function pruneBeforeAttendanceStart() {
+  const start = attendanceStartOf(await db.company.findFirst({ select: { attendanceStartDate: true } }));
+  if (!start) return 0;
+  const { count } = await db.attendanceDay.deleteMany({ where: { workDate: { lt: new Date(`${start}T00:00:00Z`) } } });
+  return count;
+}
+
 export async function recomputeAttendance(opts: { from: string; to: string; employeeIds?: string[] }) {
   const today = toDateOnlyString(todayInPKT());
   const to = opts.to > today ? today : opts.to;

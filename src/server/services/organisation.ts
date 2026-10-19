@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { recordAudit } from "@/server/audit";
 import { AppError, NotFoundError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
-import { recomputeAttendance } from "@/server/services/attendance";
+import { pruneBeforeAttendanceStart, recomputeAttendance } from "@/server/services/attendance";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 
 function uniqueError(err: unknown, label: string): never {
@@ -47,6 +47,7 @@ export async function updateCompany(
     const candidates = [earliest ? (typeof earliest === "string" ? earliest : toDateOnlyString(earliest)) : null, input.attendanceStartDate];
     const from = candidates.filter((d): d is string => !!d).sort()[0];
     if (from) await recomputeAttendance({ from, to: toDateOnlyString(todayInPKT()) });
+    await pruneBeforeAttendanceStart();
   }
   await recordAudit({ actor, action: "company.update", entityType: "Company", entityId: after.id, before, after });
   return after;
