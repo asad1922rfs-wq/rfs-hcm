@@ -8,6 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/main.ts"
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts",
+    "reboot-device": "node --disable-warning=ExperimentalWarning src/reboot.ts"
   }
 }

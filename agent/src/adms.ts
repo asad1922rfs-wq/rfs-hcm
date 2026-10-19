@@ -127,6 +127,7 @@ export function startAdmsServer(cfg: AgentConfig, outbox: Outbox, log: (msg: str
             const p = c.payload as { from?: string; to?: string };
             return `C:${c.deviceCmdId}:DATA QUERY ATTLOG StartTime=${p.from}\tEndTime=${p.to}`;
           }
+          if (c.type === "REBOOT") return `C:${c.deviceCmdId}:REBOOT`;
           return `C:${c.deviceCmdId}:INFO`;
         });
         log(`Sent ${lines.length} command(s) to ${serial}`);
