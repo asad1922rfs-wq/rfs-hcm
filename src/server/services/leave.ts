@@ -8,6 +8,7 @@ import { canAccessEmployee, scopedEmployeeWhere } from "@/server/auth/scope";
 import { recomputeAttendance } from "@/server/services/attendance";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { balanceOf, countLeaveDays, leaveDaysWithin, type Balance } from "@/core/leave/days";
+import { ineligibleLeaveMessage, leaveEligibility } from "@/core/leave/eligibility";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
@@ -27,9 +28,12 @@ export function listLeaveTypes(includeInactive = false) {
   return db.leaveType.findMany({ where: includeInactive ? {} : { isActive: true }, orderBy: { name: "asc" } });
 }
 
-export async function saveLeaveType(actor: Actor, input: { id?: string; name: string; code?: string; isPaid: boolean; daysPerYear: number | null; isActive: boolean }) {
+export async function saveLeaveType(actor: Actor, input: { id?: string; name: string; code?: string; isPaid: boolean; daysPerYear: number | null; permanentOnly: boolean; isActive: boolean }) {
   assertPermission(actor, "settings.organisation", "all");
-  const data = { name: input.name, code: input.code?.toUpperCase() || null, isPaid: input.isPaid, daysPerYear: input.daysPerYear, isActive: input.isActive };
+  const data = {
+    name: input.name, code: input.code?.toUpperCase() || null, isPaid: input.isPaid, daysPerYear: input.daysPerYear,
+    permanentOnly: input.permanentOnly, isActive: input.isActive,
+  };
   try {
     const before = input.id ? await db.leaveType.findUnique({ where: { id: input.id } }) : null;
     const after = input.id ? await db.leaveType.update({ where: { id: input.id }, data }) : await db.leaveType.create({ data });
@@ -43,11 +47,16 @@ export async function saveLeaveType(actor: Actor, input: { id?: string; name: st
 
 // ───────────── Balances ─────────────
 
-export type LeaveBalance = Balance & { leaveTypeId: string; name: string; isPaid: boolean };
+/**
+ * `eligible: false` means the employee's employment type cannot take this type (e.g. Annual Leave on probation):
+ * entitlement and remaining are then 0 and `ineligibleReason` reads like "Not eligible (probation)".
+ */
+export type LeaveBalance = Balance & { leaveTypeId: string; name: string; isPaid: boolean; permanentOnly: boolean; eligible: boolean; ineligibleReason: string | null };
 
 /** Balance per active leave type for a calendar year (approved = used, pending reserved). */
 export async function leaveBalances(employeeId: string, year: number): Promise<LeaveBalance[]> {
-  const [types, requests, { weekend, holidays }] = await Promise.all([
+  const [employee, types, requests, { weekend, holidays }] = await Promise.all([
+    db.employee.findUnique({ where: { id: employeeId }, select: { employmentType: true } }),
     listLeaveTypes(),
     db.leaveRequest.findMany({
       where: { employeeId, status: { in: ["APPROVED", "PENDING"] }, startDate: { lte: d0(`${year}-12-31`) }, endDate: { gte: d0(`${year}-01-01`) } },
@@ -58,7 +67,11 @@ export async function leaveBalances(employeeId: string, year: number): Promise<L
     const mine = requests.filter((r) => r.leaveTypeId === t.id);
     const days = (status: LeaveStatus) =>
       mine.filter((r) => r.status === status).reduce((n, r) => n + leaveDaysWithin(iso(r.startDate), iso(r.endDate), `${year}-01-01`, `${year}-12-31`, weekend, holidays), 0);
-    return { leaveTypeId: t.id, name: t.name, isPaid: t.isPaid, ...balanceOf(t.daysPerYear, days("APPROVED"), days("PENDING")) };
+    const eligibility = employee ? leaveEligibility(employee.employmentType, t) : { eligible: true as const, reason: null };
+    const base = { leaveTypeId: t.id, name: t.name, isPaid: t.isPaid, permanentOnly: t.permanentOnly, eligible: eligibility.eligible, ineligibleReason: eligibility.reason };
+    const used = days("APPROVED");
+    const pending = days("PENDING");
+    return eligibility.eligible ? { ...base, ...balanceOf(t.daysPerYear, used, pending) } : { ...base, entitlement: 0, used, pending, remaining: 0 };
   });
 }
 
@@ -81,12 +94,13 @@ export async function requestLeave(
   if (Date.parse(end) - Date.parse(start) > 90 * 86_400_000) throw new AppError("A single request can cover at most 90 days.");
 
   const [employee, type, { weekend, holidays }] = await Promise.all([
-    db.employee.findUnique({ where: { id: employeeId }, select: { id: true, fullName: true, joiningDate: true, exitDate: true, status: true } }),
+    db.employee.findUnique({ where: { id: employeeId }, select: { id: true, fullName: true, joiningDate: true, exitDate: true, status: true, employmentType: true } }),
     db.leaveType.findUnique({ where: { id: input.leaveTypeId } }),
     offDays(start, end),
   ]);
   if (!employee) throw new NotFoundError("Employee not found.");
   if (!type || !type.isActive) throw new AppError("Choose an active leave type.");
+  if (!leaveEligibility(employee.employmentType, type).eligible) throw new AppError(ineligibleLeaveMessage(type.name, employee.fullName, employee.employmentType));
   if (start < iso(employee.joiningDate)) throw new AppError("Leave cannot start before the joining date.");
   if (employee.exitDate && end > iso(employee.exitDate)) throw new AppError("Leave cannot end after the exit date.");
 
@@ -125,7 +139,7 @@ export async function requestLeave(
 }
 
 async function loadRequest(id: string) {
-  const r = await db.leaveRequest.findUnique({ where: { id }, include: { leaveType: true, employee: { select: { id: true, fullName: true } } } });
+  const r = await db.leaveRequest.findUnique({ where: { id }, include: { leaveType: true, employee: { select: { id: true, fullName: true, employmentType: true } } } });
   if (!r) throw new NotFoundError("Leave request not found.");
   return r;
 }
@@ -137,6 +151,10 @@ export async function decideLeave(actor: Actor, id: string, approve: boolean, no
   if (r.employeeId === actor.employeeId) throw new ForbiddenError("You cannot approve your own leave.");
   if (!(await canAccessEmployee(actor, "leave.approve", r.employeeId))) throw new ForbiddenError();
   if (approve) {
+    // Re-check against the employee's current employment type: the request may predate a change (or the type's flag).
+    if (!leaveEligibility(r.employee.employmentType, r.leaveType).eligible) {
+      throw new AppError(`${ineligibleLeaveMessage(r.leaveType.name, r.employee.fullName, r.employee.employmentType)} Reject this request instead.`);
+    }
     for (const date of [iso(r.startDate), iso(r.endDate)]) {
       if (await isPayrollLockedFor(date)) throw new AppError("Payroll for that month is already approved; record it as a payroll adjustment instead.");
     }

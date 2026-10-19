@@ -2,11 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { can, requireActor } from "@/server/auth/session";
 import { getEmployeeProfile } from "@/server/services/employees";
+import { listDocuments } from "@/server/services/documents";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DetailList, PageHeader } from "@/components/common";
 import { formatDate } from "@/lib/format";
 import { SelfProfileForm } from "./self-form";
+import { DocumentsPanel } from "../employees/[id]/documents";
 
 export const metadata = { title: "My profile" };
 
@@ -14,6 +16,7 @@ export default async function MyProfilePage() {
   const actor = await requireActor();
   if (!actor.employeeId) redirect("/dashboard");
   const { employee: e } = await getEmployeeProfile(actor, actor.employeeId);
+  const documents = can(actor, "document.read", "self") ? await listDocuments(actor, actor.employeeId) : null;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -53,6 +56,14 @@ export default async function MyProfilePage() {
               />
             </CardContent>
           </Card>
+        )}
+        {documents && (
+          <DocumentsPanel
+            employeeId={e.id}
+            rows={documents}
+            canManage={false}
+            description="Documents HR keeps on your record. Contact HR to add or replace one."
+          />
         )}
       </div>
     </div>

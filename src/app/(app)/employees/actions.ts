@@ -11,6 +11,7 @@ import {
 import {
   allowanceSchema, bankSchema, emergencyContactSchema, employeeSchema, EMPLOYMENT_STATUSES, formRows, money, optionalDate, optionalText, salarySchema,
 } from "@/lib/validation";
+import { deleteDocument } from "@/server/services/documents";
 import type { ActionResult } from "@/server/errors";
 
 function parseEmergencyContacts(fd: FormData) {
@@ -119,5 +120,15 @@ export async function updateOwnProfileAction(_prev: ActionResult | null, fd: For
     await updateOwnProfile(actor, { ...input, emergencyContacts: parseEmergencyContacts(fd) });
     revalidatePath("/me");
     return { ok: true, message: "Your details were updated." };
+  });
+}
+
+export async function deleteDocumentAction(documentId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    const { employeeId } = await deleteDocument(actor, z.string().min(1).max(40).parse(documentId));
+    revalidatePath(`/employees/${employeeId}`);
+    revalidatePath("/me");
+    return { ok: true, message: "Document deleted." };
   });
 }

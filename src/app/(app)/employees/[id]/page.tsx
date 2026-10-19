@@ -9,6 +9,7 @@ import { PayslipList } from "../../payslips/payslip-list";
 import { RegisterTable } from "../../attendance/register-table";
 import { can, requireActor } from "@/server/auth/session";
 import { getEmployeeProfile } from "@/server/services/employees";
+import { listDocuments } from "@/server/services/documents";
 import { ForbiddenError, NotFoundError } from "@/server/errors";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { initials } from "@/lib/utils";
 import { BankDialog, RevealBank, SalaryRevisionDialog, StatusDialog } from "./panels";
 import { DeleteEmployeesDialog } from "../delete-dialog";
+import { DocumentsPanel } from "./documents";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 
 export const metadata = { title: "Employee profile" };
@@ -49,6 +51,7 @@ export default async function EmployeeProfilePage({
   const leave = (await canAccessEmployee(actor, "leave.read", id))
     ? await Promise.all([leaveBalances(id, Number(currentMonth.slice(0, 4))), myLeaveRequests(id)]).then(([balances, requests]) => ({ balances, requests: requests.slice(0, 10) }))
     : null;
+  const documents = (await canAccessEmployee(actor, "document.read", id)) ? await listDocuments(actor, id) : null;
   const attendance = await monthRegister(actor, id, Number(month.slice(0, 4)), Number(month.slice(5, 7))).catch(() => null);
   const profile = await getEmployeeProfile(actor, id).catch((err) => {
     if (err instanceof NotFoundError || err instanceof ForbiddenError) notFound();
@@ -85,7 +88,7 @@ export default async function EmployeeProfilePage({
         )}
       </div>
 
-      <Tabs defaultValue={sp.tab === "attendance" || sp.tab === "payslips" ? sp.tab : "overview"}>
+      <Tabs defaultValue={sp.tab === "attendance" || sp.tab === "payslips" || sp.tab === "documents" ? sp.tab : "overview"}>
         <TabsList className="mb-4 w-full justify-start overflow-x-auto [&>button]:flex-none [&>button]:px-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {salary && <TabsTrigger value="salary">Salary</TabsTrigger>}
@@ -93,6 +96,7 @@ export default async function EmployeeProfilePage({
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="leave">Leave</TabsTrigger>
           <TabsTrigger value="payslips">Payslips</TabsTrigger>
+          {documents && <TabsTrigger value="documents">Documents</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="overview" className="grid gap-6 lg:grid-cols-3">
@@ -309,10 +313,14 @@ export default async function EmployeeProfilePage({
                         {leave.balances.map((b) => (
                           <TableRow key={b.leaveTypeId}>
                             <TableCell>{b.name}{!b.isPaid && <span className="ml-1 text-xs text-muted-foreground">(unpaid)</span>}</TableCell>
-                            <TableCell className="text-right tabular-nums">{b.entitlement ?? "No limit"}</TableCell>
+                            <TableCell className="text-right tabular-nums">{b.eligible ? (b.entitlement ?? "No limit") : "—"}</TableCell>
                             <TableCell className="text-right tabular-nums">{b.used}</TableCell>
                             <TableCell className="text-right tabular-nums">{b.pending}</TableCell>
-                            <TableCell className="text-right font-medium tabular-nums">{b.remaining ?? "—"}</TableCell>
+                            <TableCell className="text-right font-medium tabular-nums">
+                              {b.eligible ? (b.remaining ?? "—") : (
+                                <span className="text-xs font-normal text-muted-foreground" title="Available after confirmation as a permanent employee">{b.ineligibleReason}</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -357,6 +365,11 @@ export default async function EmployeeProfilePage({
         <TabsContent value="payslips">
           {payHistory ? <PayslipList rows={payHistory} /> : <EmptyState title="Payslips" description="You do not have access to this employee's pay." />}
         </TabsContent>
+        {documents && (
+          <TabsContent value="documents">
+            <DocumentsPanel employeeId={e.id} rows={documents} canManage={can(actor, "document.manage", "all")} />
+          </TabsContent>
+        )}
       </Tabs>
     </>
   );

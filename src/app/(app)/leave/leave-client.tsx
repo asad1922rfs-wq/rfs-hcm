@@ -14,13 +14,15 @@ type Option = { id: string; label: string };
 export function RequestLeaveDialog({
   types, employees, trigger,
 }: {
-  types: (Option & { remaining: number | null; isPaid: boolean })[];
+  /** `ineligibleReason` set = the requesting employee cannot take this type (shown disabled); `permanentOnly` is marked in HR's list. */
+  types: (Option & { remaining: number | null; isPaid: boolean; permanentOnly: boolean; ineligibleReason: string | null })[];
   employees?: Option[];
   trigger: string;
 }) {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(requestLeaveAction, null);
   const fe = state && !state.ok ? state.fieldErrors : undefined;
+  const firstEligible = types.find((t) => !t.ineligibleReason);
   useEffect(() => {
     if (state?.ok) {
       toast.success(state.message);
@@ -41,6 +43,8 @@ export function RequestLeaveDialog({
         </DialogHeader>
         {types.length === 0 ? (
           <p className="text-sm text-muted-foreground">No leave types are set up yet. HR adds them under Administration → Leave types.</p>
+        ) : !firstEligible ? (
+          <p className="text-sm text-muted-foreground">Leave is available after confirmation as a permanent employee.</p>
         ) : (
           <form action={action} className="grid gap-4">
             {state && !state.ok && <FormMessage state={state} />}
@@ -52,10 +56,15 @@ export function RequestLeaveDialog({
               </Field>
             )}
             <Field label="Leave type" name="leaveTypeId" errors={fe?.leaveTypeId}>
-              <NativeSelect id="f-leaveTypeId" name="leaveTypeId">
+              <NativeSelect id="f-leaveTypeId" name="leaveTypeId" defaultValue={firstEligible.id}>
                 {types.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}{t.isPaid ? "" : " (unpaid)"}{!employees && t.remaining !== null ? ` — ${t.remaining} day(s) left` : ""}
+                  <option key={t.id} value={t.id} disabled={!!t.ineligibleReason}>
+                    {t.label}{t.isPaid ? "" : " (unpaid)"}
+                    {t.ineligibleReason
+                      ? ` — ${t.ineligibleReason}`
+                      : employees
+                        ? (t.permanentOnly ? " — permanent employees only" : "")
+                        : t.remaining !== null ? ` — ${t.remaining} day(s) left` : ""}
                   </option>
                 ))}
               </NativeSelect>

@@ -57,9 +57,10 @@ export async function saveLeaveTypeAction(_prev: ActionResult | null, fd: FormDa
         code: z.preprocess((v) => (v === "" ? undefined : v), z.string().trim().max(12).optional()),
         daysPerYear: z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().int().min(0).max(366).nullable()),
         isPaid: z.boolean(),
+        permanentOnly: z.boolean(),
         isActive: z.boolean(),
       })
-      .parse({ ...formObject(fd), isPaid: fd.get("isPaid") === "on", isActive: fd.get("isActive") === "on" });
+      .parse({ ...formObject(fd), isPaid: fd.get("isPaid") === "on", permanentOnly: fd.get("permanentOnly") === "on", isActive: fd.get("isActive") === "on" });
     await saveLeaveType(actor, input);
     revalidatePath("/settings/leave-types");
     refresh();

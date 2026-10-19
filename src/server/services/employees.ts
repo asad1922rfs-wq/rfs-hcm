@@ -8,6 +8,7 @@ import { assertPermission, can, revokeUserSessions, type Actor } from "@/server/
 import { assertEmployeeAccess, canAccessEmployee, scopedEmployeeWhere, teamEmployeeIds } from "@/server/auth/scope";
 import { todayInPKT } from "@/lib/dates";
 import { relinkEmployeePunches } from "@/server/services/attendance";
+import { removeEmployeeDocumentFiles } from "@/server/services/documents";
 import type { BankInput, EmployeeInput, SalaryInput } from "@/lib/validation";
 
 // ───────────── Reads ─────────────
@@ -328,9 +329,11 @@ export async function deleteEmployees(actor: Actor, employeeIds: string[], confi
       await tx.rawPunch.updateMany({ where: { employeeId: e.id }, data: { employeeId: null } });
       await tx.employee.updateMany({ where: { managerId: e.id }, data: { managerId: null } });
       if (e.user) await tx.user.delete({ where: { id: e.user.id } }); // sessions cascade
-      await tx.employee.delete({ where: { id: e.id } }); // salary, bank, contacts, attendance days cascade
+      await tx.employee.delete({ where: { id: e.id } }); // salary, bank, contacts, attendance days, documents cascade
     }
   }, { timeout: 60_000 });
+  // Document rows cascade with the employee; their files on disk are removed once the delete has committed.
+  await removeEmployeeDocumentFiles(employees.map((e) => e.id));
   return { deleted: employees.length };
 }
 

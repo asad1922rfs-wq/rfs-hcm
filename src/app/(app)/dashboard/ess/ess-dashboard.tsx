@@ -166,9 +166,13 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
               {data.leave.map((b) => (
                 <div key={b.leaveTypeId} className="flex items-center justify-between border-t px-4 py-2.5 text-sm">
                   <dt>{b.name}{!b.isPaid && <span className="text-xs text-muted-foreground"> (unpaid)</span>}</dt>
-                  <dd className="min-w-12 rounded bg-muted px-2 py-0.5 text-right tabular-nums" title={`${b.used} used${b.pending ? `, ${b.pending} pending` : ""}`}>
-                    {b.remaining !== null ? b.remaining.toFixed(2) : `${b.used} used`}
-                  </dd>
+                  {b.eligible ? (
+                    <dd className="min-w-12 rounded bg-muted px-2 py-0.5 text-right tabular-nums" title={`${b.used} used${b.pending ? `, ${b.pending} pending` : ""}`}>
+                      {b.remaining !== null ? b.remaining.toFixed(2) : `${b.used} used`}
+                    </dd>
+                  ) : (
+                    <dd className="text-xs text-muted-foreground" title="Available after confirmation as a permanent employee">{b.ineligibleReason}</dd>
+                  )}
                 </div>
               ))}
               <div className="border-t px-4 py-2.5 text-right"><Link href="/leave" className="text-sm text-primary hover:underline">Request leave</Link></div>

@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
+    // Middleware buffers request bodies up to this size (default 10 MB). Employee documents may be 10 MB plus the
+    // multipart envelope (POST /api/v1/employees/[id]/documents enforces the real limit).
+    middlewareClientMaxBodySize: "11mb",
   },
   webpack(config) {
     // The sync agent's database and logs live in agent/; changes there must not trigger dev recompiles.

@@ -83,7 +83,12 @@ export default async function LeavePage({ searchParams }: { searchParams: Promis
   const employees = isHr
     ? (await db.employee.findMany({ where: { status: "ACTIVE" }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true, employeeCode: true } })).map((e) => ({ id: e.id, label: `${e.fullName} (${e.employeeCode})` }))
     : undefined;
-  const typeOptions = types.map((t) => ({ id: t.id, label: t.name, isPaid: t.isPaid, remaining: balances.find((b) => b.leaveTypeId === t.id)?.remaining ?? null }));
+  // HR's "Record leave" list is for any employee, so it only marks permanent-only types; the server checks the chosen employee.
+  const hrTypeOptions = types.map((t) => ({ id: t.id, label: t.name, isPaid: t.isPaid, remaining: null, permanentOnly: t.permanentOnly, ineligibleReason: null }));
+  const typeOptions = types.map((t) => {
+    const b = balances.find((x) => x.leaveTypeId === t.id);
+    return { id: t.id, label: t.name, isPaid: t.isPaid, remaining: b?.remaining ?? null, permanentOnly: t.permanentOnly, ineligibleReason: b && !b.eligible ? b.ineligibleReason : null };
+  });
 
   const tab = (v: string, label: string, count?: number) => (
     <Link
@@ -102,7 +107,7 @@ export default async function LeavePage({ searchParams }: { searchParams: Promis
         description={`Calendar year ${year}. Leave counts working days only; approved leave shows in attendance and unpaid leave is deducted in payroll.`}
         actions={
           <div className="flex flex-wrap gap-2">
-            {employees && <RequestLeaveDialog types={typeOptions} employees={employees} trigger="Record leave" />}
+            {employees && <RequestLeaveDialog types={hrTypeOptions} employees={employees} trigger="Record leave" />}
             {actor.employeeId && can(actor, "leave.request", "self") && <RequestLeaveDialog types={typeOptions} trigger="Request leave" />}
           </div>
         }
@@ -121,8 +126,17 @@ export default async function LeavePage({ searchParams }: { searchParams: Promis
                 <Card key={b.leaveTypeId} className="gap-1 py-4">
                   <CardHeader className="px-4"><CardTitle className="text-sm">{b.name}{!b.isPaid && <span className="ml-1 font-normal text-muted-foreground">(unpaid)</span>}</CardTitle></CardHeader>
                   <CardContent className="px-4">
-                    <p className="text-2xl font-semibold tabular-nums">{b.remaining ?? "—"}<span className="text-sm font-normal text-muted-foreground">{b.entitlement !== null ? ` / ${b.entitlement} left` : " no limit"}</span></p>
-                    <p className="text-xs text-muted-foreground">{b.used} used{b.pending ? ` · ${b.pending} pending` : ""}</p>
+                    {b.eligible ? (
+                      <>
+                        <p className="text-2xl font-semibold tabular-nums">{b.remaining ?? "—"}<span className="text-sm font-normal text-muted-foreground">{b.entitlement !== null ? ` / ${b.entitlement} left` : " no limit"}</span></p>
+                        <p className="text-xs text-muted-foreground">{b.used} used{b.pending ? ` · ${b.pending} pending` : ""}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-base font-medium text-muted-foreground">{b.ineligibleReason}</p>
+                        <p className="text-xs text-muted-foreground">Available after confirmation as a permanent employee.</p>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
               ))}
