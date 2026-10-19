@@ -57,6 +57,8 @@ export async function importPunchFile(actor: Actor, file: File) {
   return { ...result, unmatchedIds, errors: parsed.errors };
 }
 
+const RECENT_DAYS = 7;
+
 /**
  * Store raw punches (duplicates are skipped by the unique key), link them to employees by biometric user ID,
  * and recalculate attendance for the affected dates. Shared by file imports and the sync agent.
@@ -93,13 +95,18 @@ export async function ingestPunches(
     inserted += res.count;
   }
 
-  if (inserted > 0) {
-    const times = punches.map((p) => p.punchedAt.getTime());
-    await recomputeAttendance({
-      from: addDaysIso(toDateOnlyString(new Date(Math.min(...times))), -1),
-      to: toDateOnlyString(new Date(Math.max(...times))),
-    });
-  }
+  // Recalculate even when every punch was a duplicate: a retried upload means the earlier recalculation may
+  // have been cut off (e.g. by an app restart). The last RECENT_DAYS are always included, so any interrupted
+  // recalculation heals on the next punch.
+  const times = punches.map((p) => p.punchedAt.getTime());
+  const today = toDateOnlyString(todayInPKT());
+  const batchFrom = addDaysIso(toDateOnlyString(new Date(Math.min(...times))), -1);
+  const recentFrom = addDaysIso(today, -RECENT_DAYS);
+  const batchTo = toDateOnlyString(new Date(Math.max(...times)));
+  await recomputeAttendance({
+    from: batchFrom < recentFrom ? batchFrom : recentFrom,
+    to: batchTo > today ? batchTo : today,
+  });
   const unmatchedIds = [...new Set(punches.filter((p) => !byDeviceUser.has(p.deviceUserId)).map((p) => p.deviceUserId))];
   return { inserted, unmatchedIds };
 }
