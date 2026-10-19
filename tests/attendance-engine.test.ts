@@ -199,3 +199,11 @@ describe("excused adjustments", () => {
     expect(excuseAdjusted(day, adj, FRIDAY).status).toBe("PRESENT");
   });
 });
+
+describe("grace period uses the minute shown on the clock", () => {
+  it("2:15:40 PM is on time with 15 minutes' grace; 2:16:00 is late", () => {
+    const out = pkt("2026-10-08 23:25:00");
+    expect(computeDay("2026-10-08", [pkt("2026-10-08 14:15:40"), out], SHIFT, false)).toMatchObject({ status: "PRESENT", lateMinutes: 15 });
+    expect(computeDay("2026-10-08", [pkt("2026-10-08 14:16:00"), out], SHIFT, false)).toMatchObject({ status: "LATE", lateMinutes: 16 });
+  });
+});

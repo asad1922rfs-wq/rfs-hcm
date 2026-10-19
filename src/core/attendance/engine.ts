@@ -138,7 +138,8 @@ export function computeDay(workDate: string, punches: readonly Date[], shift: Sh
   if (!first) return null;
 
   const midnight = localMidnight(workDate).getTime();
-  const minuteOf = (d: Date) => Math.round((d.getTime() - midnight) / 60_000);
+  // Whole minutes, as the clock shows them: 2:15:40 PM is 2:15, so it is within a 15-minute grace.
+  const minuteOf = (d: Date) => Math.floor((d.getTime() - midnight) / 60_000);
   const inMinute = minuteOf(first);
   const lateMinutes = isOffDay ? 0 : Math.max(0, inMinute - shift.startMinute);
 

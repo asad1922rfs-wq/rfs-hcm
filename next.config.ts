@@ -11,8 +11,15 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: ["@node-rs/argon2", "exceljs", "@react-pdf/renderer"],
-  // pdfkit (under @react-pdf) loads its built-in fonts by a computed path, which file tracing cannot see.
-  outputFileTracingIncludes: { "/**": ["./node_modules/pdfkit/js/standard-fonts/**"] },
+  // Files file tracing cannot see: pdfkit (under @react-pdf) loads its built-in fonts by a computed path, and
+  // Node 22+ resolves these packages' "module-sync" export (require.mjs), which the tracer does not copy.
+  outputFileTracingIncludes: {
+    "/**": [
+      "./node_modules/pdfkit/js/standard-fonts/**",
+      "./node_modules/generator-function/require.mjs",
+      "./node_modules/async-function/require.mjs",
+    ],
+  },
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
   },

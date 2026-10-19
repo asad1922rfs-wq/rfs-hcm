@@ -6,15 +6,28 @@ import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
-/** Keep recent attendance fresh without waiting for a punch (e.g. after a manual fix or an interrupted sync). */
+/**
+ * Keep attendance fresh without waiting for a punch (e.g. after a manual fix, an interrupted sync or a rule change):
+ * every 10 minutes for today and yesterday, and once after each start for last month onwards.
+ */
 const REFRESH_EVERY_MS = 10 * 60_000;
 let lastRefresh = 0;
 
 function refreshRecentAttendance() {
   if (Date.now() - lastRefresh < REFRESH_EVERY_MS) return;
+  const firstSinceStart = lastRefresh === 0;
   lastRefresh = Date.now();
   const today = toDateOnlyString(todayInPKT());
-  after(() => recomputeAttendance({ from: addDaysIso(today, -1), to: today }).catch((err) => console.error("attendance refresh failed", err)));
+  // After a deploy or restart, recalculate from the start of last month so changed rules apply to open months too.
+  const from = firstSinceStart ? `${addMonthsIso(today.slice(0, 7), -1)}-01` : addDaysIso(today, -1);
+  after(() => recomputeAttendance({ from, to: today }).catch((err) => console.error("attendance refresh failed", err)));
+}
+
+/** "YYYY-MM" shifted by n months. */
+function addMonthsIso(ym: string, n: number): string {
+  const [y, m] = ym.split("-").map(Number) as [number, number];
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return d.toISOString().slice(0, 7);
 }
 
 /** Sync agent → server every minute: agent/device health and command results. Returns pending commands. */
