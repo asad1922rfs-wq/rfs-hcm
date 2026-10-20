@@ -90,6 +90,9 @@ export function DocumentsPanel({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      {d.mimeType.startsWith("image/") ? (
+                        <ImageLightbox id={d.id} title={d.title} />
+                      ) : (
                       <Button asChild variant="ghost" size="sm">
                         {opensInline(d.mimeType) ? (
                           <a href={`/api/v1/documents/${d.id}`} target="_blank" rel="noopener noreferrer"><Eye className="size-4" /> View</a>
@@ -97,6 +100,7 @@ export function DocumentsPanel({
                           <a href={`/api/v1/documents/${d.id}?download=1`}><Download className="size-4" /> Download</a>
                         )}
                       </Button>
+                      )}
                       {canManage && <DeleteDocumentButton id={d.id} title={d.title} />}
                     </div>
                   </TableCell>
@@ -236,6 +240,28 @@ function DeleteDocumentButton({ id, title }: { id: string; title: string }) {
           >
             {pending && <Loader2 className="size-4 animate-spin" />} Delete
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Images open in a popup over the page; PDFs open in a new tab (the browser's PDF viewer). */
+function ImageLightbox({ id, title }: { id: string; title: string }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm"><Eye className="size-4" /> View</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[95vw] gap-3 p-3 sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle className="pr-8 text-base">{title}</DialogTitle>
+          <DialogDescription className="sr-only">Document preview</DialogDescription>
+        </DialogHeader>
+        {/* eslint-disable-next-line @next/next/no-img-element -- private file served by the app, not optimisable */}
+        <img src={`/api/v1/documents/${id}`} alt={title} className="mx-auto max-h-[78vh] w-auto rounded-md object-contain" />
+        <DialogFooter>
+          <Button asChild variant="outline" size="sm"><a href={`/api/v1/documents/${id}?download=1`}><Download className="size-4" /> Download</a></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
