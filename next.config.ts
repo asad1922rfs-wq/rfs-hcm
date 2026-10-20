@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
+    // Shared hosting caps processes per account: build with a single worker or page generation fails with EAGAIN.
+    cpus: 1,
+    staticGenerationMaxConcurrency: 2,
     // Middleware buffers request bodies up to this size (default 10 MB). Employee documents may be 10 MB plus the
     // multipart envelope (POST /api/v1/employees/[id]/documents enforces the real limit).
     middlewareClientMaxBodySize: "11mb",
