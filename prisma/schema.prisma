@@ -601,10 +601,13 @@ model Loan {
   employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   /// Whole rupees
   amount            Decimal         @db.Decimal(14, 2)
-  installments      Int
-  /// Regular monthly installment (amount ÷ installments, rounded; HR may change it); the last one takes the remainder
-  installmentAmount Decimal         @db.Decimal(14, 2)
-  /// First payroll month the installment is deducted in
+  /// Legacy fixed plan (no longer used: deductions are only the per-month amounts HR enters in LoanMonthOverride)
+  installments      Int?
+  /// Legacy fixed plan (no longer used)
+  installmentAmount Decimal?        @db.Decimal(14, 2)
+  /// Date the money was given to the employee (null on loans from before this was recorded)
+  givenOn           DateTime?       @db.Date
+  /// Month the loan was given / first could be deducted (informational)
   startYear         Int
   startMonth        Int
   reason            String          @db.Text
@@ -645,15 +648,15 @@ model LoanRepayment {
   @@unique([loanId, payrollItemId])
 }
 
-/// HR's change to one month of a loan: amount null or 0 skips the month (the schedule moves on by a month); more
-/// than 0 is deducted instead of the regular installment (never more than the balance).
+/// The installment HR entered for one payroll month of a loan. Only these are deducted: amount more than 0 is
+/// deducted that month (never more than the balance or net pay); null or 0 deducts nothing.
 model LoanMonthOverride {
   id          String   @id @default(cuid())
   loanId      String
   loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
   year        Int
   month       Int
-  /// Whole rupees; null or 0 = skip
+  /// Whole rupees; null or 0 = nothing deducted
   amount      Decimal? @db.Decimal(14, 2)
   createdById String?
   createdAt   DateTime @default(now())

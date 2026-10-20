@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import { Ban, Check, Loader2, Pencil, Plus, RotateCcw, Wallet, X } from "lucide-react";
+import { Ban, Check, Loader2, Plus, Save, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -9,18 +9,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormMessage, NativeSelect, SubmitButton } from "@/components/form";
-import { installmentPlan, MAX_INSTALLMENTS } from "@/core/loans/schedule";
 import { formatPKR } from "@/lib/format";
-import { cancelLoanAction, cashRepaymentAction, changeInstallmentAction, createLoanAction, decideLoanAction, monthInstallmentAction } from "./actions";
+import { cancelLoanAction, cashRepaymentAction, createLoanAction, decideLoanAction, monthInstallmentAction } from "./actions";
 
 type Option = { id: string; label: string };
 
-/** "Add loan" for HR/Finance. Employees do not request loans themselves. */
-export function LoanFormDialog({ employees, minMonth, defaultMonth, trigger }: { employees: Option[]; minMonth: string; defaultMonth: string; trigger: string }) {
+/** "Add loan" for HR/Finance. Employees do not request loans themselves. There is no monthly plan. */
+export function LoanFormDialog({ employees, minMonth, defaultMonth, today, trigger }: { employees: Option[]; minMonth: string; defaultMonth: string; today: string; trigger: string }) {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(createLoanAction, null);
-  const [amount, setAmount] = useState("");
-  const [installments, setInstallments] = useState("6");
   const fe = state && !state.ok ? state.fieldErrors : undefined;
   useEffect(() => {
     if (state?.ok) {
@@ -28,11 +25,6 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, trigger }: {
       setOpen(false);
     }
   }, [state]);
-
-  const a = Number(amount);
-  const n = Number(installments);
-  const valid = Number.isInteger(a) && a > 0 && Number.isInteger(n) && n >= 1 && n <= MAX_INSTALLMENTS && n <= a;
-  const plan = valid ? installmentPlan(a, n) : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -43,8 +35,8 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, trigger }: {
         <DialogHeader>
           <DialogTitle>Add a loan for an employee</DialogTitle>
           <DialogDescription>
-            Interest-free. The installment is deducted from salary every month from the first deduction month. A loan added
-            here is approved immediately.
+            Interest-free. Nothing is deducted automatically: only the installment you enter for a month is deducted from
+            that month&apos;s salary. A loan added here is approved immediately.
           </DialogDescription>
         </DialogHeader>
         <form action={action} className="grid gap-4">
@@ -55,25 +47,17 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, trigger }: {
             </NativeSelect>
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Amount (Rs)" name="amount" type="number" min={1} step={1} inputMode="numeric" required value={amount} onChange={(e) => setAmount(e.target.value)} errors={fe?.amount} />
-            <Field label="Monthly installments" name="installments" type="number" min={1} max={MAX_INSTALLMENTS} step={1} required value={installments} onChange={(e) => setInstallments(e.target.value)} errors={fe?.installments} />
+            <Field label="Amount (Rs)" name="amount" type="number" min={1} step={1} inputMode="numeric" required errors={fe?.amount} />
+            <Field label="Date given" name="givenOn" type="date" max={today} defaultValue={today} required errors={fe?.givenOn} />
           </div>
-          {plan && (
-            <p className="rounded-md bg-muted px-3 py-2 text-sm">
-              {n === 1 ? (
-                <>One deduction of <strong>{formatPKR(plan.last)}</strong>.</>
-              ) : plan.last === plan.regular ? (
-                <><strong>{formatPKR(plan.regular)}</strong> a month for {n} months.</>
-              ) : (
-                <><strong>{formatPKR(plan.regular)}</strong> a month for {n - 1} months, then {formatPKR(plan.last)}.</>
-              )}
-            </p>
-          )}
-          <Field label="First deduction month" name="start" type="month" min={minMonth} defaultValue={defaultMonth} required errors={fe?.start} hint="Salary for this month is the first one reduced." />
           <div className="grid gap-1.5">
             <Label htmlFor="f-reason">Reason<span className="text-destructive"> *</span></Label>
             <Textarea id="f-reason" name="reason" required rows={3} maxLength={1000} placeholder="e.g. Medical expenses, house rent advance" aria-invalid={fe?.reason ? true : undefined} />
             {fe?.reason && <p className="text-xs text-destructive">{fe.reason[0]}</p>}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Deduct this month (Rs)" name="deductAmount" type="number" min={1} step={1} inputMode="numeric" errors={fe?.deductAmount} hint="Optional. Leave empty to enter it later." />
+            <Field label="Month" name="deductMonth" type="month" min={minMonth} defaultValue={defaultMonth} errors={fe?.deductMonth} />
           </div>
           <SubmitButton>Add loan</SubmitButton>
         </form>
@@ -82,15 +66,14 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, trigger }: {
   );
 }
 
-/** Approve (optionally moving the first deduction month) or reject a pending request. */
-export function DecideLoanButtons({ id, name, startMonth, minMonth }: { id: string; name: string; startMonth: string; minMonth: string }) {
+/** Approve or reject a pending request (from before employees stopped requesting loans). */
+export function DecideLoanButtons({ id, name }: { id: string; name: string }) {
   const [note, setNote] = useState("");
-  const [start, setStart] = useState(startMonth < minMonth ? minMonth : startMonth);
   const [mode, setMode] = useState<"approve" | "reject" | null>(null);
   const [pending, run] = useTransition();
   const decide = (approve: boolean) =>
     run(async () => {
-      const r = await decideLoanAction(id, approve, note, approve ? start : undefined);
+      const r = await decideLoanAction(id, approve, note);
       if (r.ok) {
         toast.success(r.message);
         setMode(null);
@@ -104,14 +87,8 @@ export function DecideLoanButtons({ id, name, startMonth, minMonth }: { id: stri
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{mode === "approve" ? "Approve loan" : "Reject loan"} · {name}</DialogTitle>
-            <DialogDescription>{mode === "approve" ? "Installments are deducted in payroll from the month below." : "The employee will see your note."}</DialogDescription>
+            <DialogDescription>{mode === "approve" ? "Afterwards, enter the installment on the loan for each month it should be deducted." : "The employee will see your note."}</DialogDescription>
           </DialogHeader>
-          {mode === "approve" && (
-            <div className="grid gap-1.5">
-              <Label htmlFor={`start-${id}`}>First deduction month</Label>
-              <Input id={`start-${id}`} type="month" min={minMonth} value={start} onChange={(e) => setStart(e.target.value)} />
-            </div>
-          )}
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "approve" ? "Note (optional)" : "Reason (required)"} rows={3} maxLength={1000} />
           <Button variant={mode === "approve" ? "default" : "destructive"} disabled={pending} onClick={() => decide(mode === "approve")}>
             {pending && <Loader2 className="size-4 animate-spin" />}
@@ -143,7 +120,7 @@ export function CancelLoanButton({ id, running, label }: { id: string; running: 
         <DialogHeader>
           <DialogTitle>{label}</DialogTitle>
           <DialogDescription>
-            {running ? "No further installments are deducted and the outstanding balance is written off. This is recorded in the audit log." : "The request is withdrawn."}
+            {running ? "Nothing more is deducted and the outstanding balance is written off. This is recorded in the audit log." : "The request is withdrawn."}
           </DialogDescription>
         </DialogHeader>
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={running ? "Reason (required)" : "Note (optional)"} rows={3} maxLength={1000} />
@@ -172,7 +149,7 @@ export function CashRepaymentDialog({ id, outstanding, today }: { id: string; ou
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Record cash repayment</DialogTitle>
-          <DialogDescription>Money paid back outside payroll. It lowers the balance, so the loan finishes sooner. Outstanding: {formatPKR(outstanding)}.</DialogDescription>
+          <DialogDescription>Money paid back outside payroll. It lowers the balance. Outstanding: {formatPKR(outstanding)}.</DialogDescription>
         </DialogHeader>
         <form action={action} className="grid gap-4">
           {state && !state.ok && <FormMessage state={state} />}
@@ -188,83 +165,33 @@ export function CashRepaymentDialog({ id, outstanding, today }: { id: string; ou
   );
 }
 
-/** "Change this month's installment" (0 skips the month) and "Reset to regular" for one upcoming month. */
-export function MonthInstallmentButtons({ id, month, label, amount, adjusted, max }: { id: string; month: string; label: string; amount: number; adjusted: boolean; max: number }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(String(amount));
+/** The installment for one open month: an amount field and Save; 0 or empty clears it. */
+export function MonthInstallmentField({ id, month, label, amount, max }: { id: string; month: string; label: string; amount: number; max: number }) {
+  const [value, setValue] = useState(amount ? String(amount) : "");
   const [pending, run] = useTransition();
-  const submit = (next: string | null) =>
-    run(async () => {
-      const r = await monthInstallmentAction(id, month, next);
-      if (r.ok) {
-        toast.success(r.message);
-        setOpen(false);
-      } else toast.error(r.error);
-    });
-  return (
-    <div className="flex justify-end gap-1">
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setValue(String(amount)); }}>
-        <DialogTrigger asChild>
-          <Button size="xs" variant="ghost" aria-label={`Change the installment for ${label}`}><Pencil /> Change</Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change this month&apos;s installment · {label}</DialogTitle>
-            <DialogDescription>
-              Deduct a different amount in this month only — higher or lower than the regular installment. Enter 0 to skip the month; the schedule then runs a month longer. At most {formatPKR(max)} (the outstanding balance).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-1.5">
-            <Label htmlFor={`m-${id}-${month}`}>Amount (Rs)</Label>
-            <Input id={`m-${id}-${month}`} type="number" min={0} max={max} step={1} inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} />
-          </div>
-          <Button disabled={pending || value.trim() === ""} onClick={() => submit(value.trim())}>
-            {pending && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-        </DialogContent>
-      </Dialog>
-      {adjusted && (
-        <Button size="xs" variant="ghost" disabled={pending} aria-label={`Reset ${label} to the regular installment`} onClick={() => submit(null)}>
-          {pending ? <Loader2 className="animate-spin" /> : <RotateCcw />} Reset to regular
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** Change the regular monthly installment of a running loan from the next open payroll month. */
-export function ChangeInstallmentDialog({ id, current, max }: { id: string; current: number; max: number }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(String(current));
-  const [pending, run] = useTransition();
+  useEffect(() => setValue(amount ? String(amount) : ""), [amount]);
+  const dirty = (value.trim() === "" ? 0 : Number(value)) !== amount;
   const save = () =>
     run(async () => {
-      const r = await changeInstallmentAction(id, value.trim());
-      if (r.ok) {
-        toast.success(r.message);
-        setOpen(false);
-      } else toast.error(r.error);
+      const r = await monthInstallmentAction(id, month, value.trim());
+      if (r.ok) toast.success(r.message);
+      else toast.error(r.error);
     });
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button variant="outline"><Pencil className="size-4" /> Change monthly installment</Button></DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Change monthly installment</DialogTitle>
-          <DialogDescription>
-            From the next open payroll month this amount is deducted every month and the final installment takes what is left. Months already paid and months you changed individually stay as they are. Recorded in the audit log.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-1.5">
-          <Label htmlFor={`inst-${id}`}>Monthly installment (Rs)</Label>
-          <Input id={`inst-${id}`} type="number" min={1} max={max} step={1} inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} />
-        </div>
-        <Button disabled={pending || value.trim() === ""} onClick={save}>
-          {pending && <Loader2 className="size-4 animate-spin" />}
-          Save
-        </Button>
-      </DialogContent>
-    </Dialog>
+    <form
+      className="flex items-center justify-end gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <Input
+        type="number" min={0} max={max} step={1} inputMode="numeric" placeholder="0" className="h-8 w-28 text-right"
+        aria-label={`Installment for ${label} (Rs)`} value={value} onChange={(e) => setValue(e.target.value)}
+      />
+      <Button type="submit" size="sm" variant="outline" disabled={pending || !dirty} aria-label={`Save the installment for ${label}`}>
+        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save
+      </Button>
+    </form>
   );
 }

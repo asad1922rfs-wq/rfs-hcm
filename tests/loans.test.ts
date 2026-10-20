@@ -1,153 +1,75 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildSchedule, capLoanDeductions, installmentPlan, installmentsLeft, loanDueFor, loanLineLabel, outstandingBalance, splitInstallments,
+  buildMonthList, capLoanDeductions, loanDueFor, loanLineLabel, outstandingBalance,
   type LoanTerms, type MonthOverride, type RepaymentRecord,
 } from "@/core/loans/schedule";
 import { calculatePay, type AttendanceStatusCode, type PayInput } from "@/core/payroll/calculate";
 
-// 100,000 over 6 months from October 2026: 16,667 × 5 + 16,665.
-const loan: LoanTerms = { amount: 100_000, installments: 6, startYear: 2026, startMonth: 10, status: "APPROVED" };
+const loan: LoanTerms = { amount: 100_000, status: "APPROVED" };
 const payroll = (year: number, month: number, amount: number): RepaymentRecord => ({ amount, source: "PAYROLL", year, month });
 const cash = (year: number, month: number, amount: number): RepaymentRecord => ({ amount, source: "CASH", year, month });
 const due = (repayments: RepaymentRecord[], year: number, month: number, overrides: MonthOverride[] = [], terms = loan) =>
   loanDueFor("L1", terms, repayments, overrides, year, month);
-const skip = (year: number, month: number): MonthOverride => ({ year, month, amount: 0 });
-const set = (year: number, month: number, amount: number): MonthOverride => ({ year, month, amount });
+const set = (year: number, month: number, amount: number | null): MonthOverride => ({ year, month, amount });
 
-describe("installment split", () => {
-  it("rounds to whole rupees and the last installment takes the remainder", () => {
-    expect(splitInstallments(100_000, 6)).toEqual([16_667, 16_667, 16_667, 16_667, 16_667, 16_665]);
-    expect(splitInstallments(100_000, 3)).toEqual([33_333, 33_333, 33_334]);
-    expect(splitInstallments(50_000, 1)).toEqual([50_000]);
-    for (const [amount, n] of [[100_000, 6], [99_999, 7], [10, 6], [7, 7], [1_234_567, 60]] as const) {
-      const parts = splitInstallments(amount, n);
-      expect(parts).toHaveLength(n);
-      expect(parts.reduce((s, p) => s + p, 0)).toBe(amount);
-      expect(Math.min(...parts)).toBeGreaterThan(0);
-    }
-  });
-
-  it("rounds down instead when rounding up would leave nothing for the last installment", () => {
-    expect(installmentPlan(10, 6)).toEqual({ regular: 1, last: 5 });
-  });
-
-  it("counts installments left for a balance", () => {
-    const plan = installmentPlan(100_000, 6);
-    expect(installmentsLeft(100_000, plan)).toBe(6);
-    expect(installmentsLeft(16_665, plan)).toBe(1);
-    expect(installmentsLeft(0, plan)).toBe(0);
-    expect(installmentsLeft(9, installmentPlan(10, 6))).toBe(5);
-  });
-
-  it("outstanding balance is the amount less every recorded repayment", () => {
+describe("outstandingBalance", () => {
+  it("is the amount less every recorded repayment, never below zero", () => {
     expect(outstandingBalance(100_000, [payroll(2026, 10, 16_667), cash(2026, 11, 20_000)])).toBe(63_333);
     expect(outstandingBalance(100, [cash(2026, 11, 150)])).toBe(0);
   });
 });
 
-describe("loanDueFor", () => {
-  it("deducts the first installment in the start month, numbered 1 of 6", () => {
-    expect(due([], 2026, 10)).toEqual({ loanId: "L1", amount: 16_667, installmentNo: 1, totalInstallments: 6 });
+describe("loanDueFor (manual installments)", () => {
+  it("deducts nothing in a month without an entry", () => {
+    expect(due([], 2026, 10)).toBeNull();
+    expect(due([], 2026, 10, [set(2026, 11, 5_000)])).toBeNull();
   });
 
-  it("deducts nothing before the start month", () => {
-    expect(due([], 2026, 9)).toBeNull();
-    expect(due([], 2025, 12)).toBeNull();
+  it("deducts exactly the amount entered for the month", () => {
+    expect(due([], 2026, 10, [set(2026, 10, 12_000)])).toEqual({ loanId: "L1", amount: 12_000 });
+  });
+
+  it("a cleared entry (0 or null) deducts nothing", () => {
+    expect(due([], 2026, 10, [set(2026, 10, 0)])).toBeNull();
+    expect(due([], 2026, 10, [set(2026, 10, null)])).toBeNull();
+  });
+
+  it("caps the entry at the outstanding balance", () => {
+    expect(due([cash(2026, 9, 90_000)], 2026, 10, [set(2026, 10, 50_000)])).toEqual({ loanId: "L1", amount: 10_000 });
+  });
+
+  it("deducts nothing once the loan is fully repaid", () => {
+    expect(due([payroll(2026, 9, 60_000), cash(2026, 9, 40_000)], 2026, 10, [set(2026, 10, 5_000)])).toBeNull();
   });
 
   it("deducts nothing for pending, rejected, completed or cancelled loans", () => {
     for (const status of ["PENDING", "REJECTED", "COMPLETED", "CANCELLED"] as const) {
-      expect(due([], 2026, 10, [], { ...loan, status })).toBeNull();
+      expect(due([], 2026, 10, [set(2026, 10, 5_000)], { ...loan, status })).toBeNull();
     }
-  });
-
-  it("numbers installments from the payroll repayments already recorded", () => {
-    const paid = [payroll(2026, 10, 16_667), payroll(2026, 11, 16_667)];
-    expect(due(paid, 2026, 12)).toMatchObject({ amount: 16_667, installmentNo: 3, totalInstallments: 6 });
-  });
-
-  it("the last installment takes the remainder and then the loan is done", () => {
-    const five = [10, 11, 12].map((m) => payroll(2026, m, 16_667)).concat([1, 2].map((m) => payroll(2027, m, 16_667)));
-    expect(due(five, 2027, 3)).toMatchObject({ amount: 16_665, installmentNo: 6, totalInstallments: 6 });
-    expect(due([...five, payroll(2027, 3, 16_665)], 2027, 4)).toBeNull();
   });
 
   it("ignores a payroll repayment already recorded for the same month (recalculating never double counts)", () => {
-    const paid = [payroll(2026, 10, 16_667)];
-    expect(due(paid, 2026, 10)).toEqual(due([], 2026, 10));
+    const o = [set(2026, 10, 100_000)];
+    expect(due([payroll(2026, 10, 100_000)], 2026, 10, o)).toEqual(due([], 2026, 10, o));
   });
 
-  it("a skipped month (override 0, or a pause row with no amount) deducts nothing and the next month takes the same installment", () => {
-    const paid = [payroll(2026, 10, 16_667)];
-    for (const overrides of [[skip(2026, 11)], [{ year: 2026, month: 11, amount: null }]]) {
-      expect(due(paid, 2026, 11, overrides)).toBeNull();
-      expect(due(paid, 2026, 12, overrides)).toMatchObject({ amount: 16_667, installmentNo: 2, totalInstallments: 6 });
-    }
-  });
-
-  it("a higher override deducts more that month and the loan finishes sooner", () => {
-    const r = due([], 2026, 10, [set(2026, 10, 50_000)]);
-    expect(r).toEqual({ loanId: "L1", amount: 50_000, installmentNo: 1, totalInstallments: 4 }); // 50,000 left: 16,667 × 2 + 16,666
-    expect(due([payroll(2026, 10, 50_000)], 2026, 11, [set(2026, 10, 50_000)])).toMatchObject({ amount: 16_667, installmentNo: 2 });
-  });
-
-  it("a lower override deducts less that month and the schedule runs longer", () => {
-    expect(due([], 2026, 10, [set(2026, 10, 5_000)])).toMatchObject({ amount: 5_000, installmentNo: 1, totalInstallments: 7 });
-  });
-
-  it("an override only changes its own month", () => {
-    expect(due([], 2026, 10, [set(2026, 11, 1_000)])).toEqual(due([], 2026, 10));
-  });
-
-  it("an override is capped at the outstanding balance", () => {
-    expect(due([cash(2026, 10, 90_000)], 2026, 10, [set(2026, 10, 50_000)])).toMatchObject({ amount: 10_000, totalInstallments: 1 });
-  });
-
-  it("an override in the final month replaces the remainder; whatever is left runs on", () => {
-    const five = [10, 11, 12].map((m) => payroll(2026, m, 16_667)).concat([1, 2].map((m) => payroll(2027, m, 16_667)));
-    expect(due(five, 2027, 3, [set(2027, 3, 10_000)])).toMatchObject({ amount: 10_000, installmentNo: 6, totalInstallments: 7 });
-    expect(due([...five, payroll(2027, 3, 10_000)], 2027, 4, [set(2027, 3, 10_000)])).toMatchObject({ amount: 6_665, installmentNo: 7, totalInstallments: 7 });
-  });
-
-  it("a changed regular installment applies every month, the final one taking what is left", () => {
-    const changed = { ...loan, installmentAmount: 30_000 };
-    expect(due([], 2026, 10, [], changed)).toMatchObject({ amount: 30_000, installmentNo: 1, totalInstallments: 4 });
-    const paid = [10, 11, 12].map((m) => payroll(2026, m, 30_000));
-    expect(due(paid, 2027, 1, [], changed)).toMatchObject({ amount: 10_000, installmentNo: 4, totalInstallments: 4 });
-    // The stored even-split installment behaves exactly like before.
-    expect(due([], 2026, 10, [], { ...loan, installmentAmount: 16_667 })).toEqual(due([], 2026, 10));
-  });
-
-  it("a cash repayment lowers the balance so later deductions finish sooner", () => {
-    const paid = [payroll(2026, 10, 16_667), payroll(2026, 11, 16_667), cash(2026, 11, 50_000)];
-    // 16,666 left: one final installment
-    expect(due(paid, 2026, 12)).toEqual({ loanId: "L1", amount: 16_666, installmentNo: 3, totalInstallments: 3 });
-    const smaller = [payroll(2026, 10, 16_667), cash(2026, 10, 80_000)];
-    expect(due(smaller, 2026, 11)).toMatchObject({ amount: 3_333, totalInstallments: 2 });
-  });
-
-  it("never deducts more than the outstanding balance", () => {
-    expect(due([cash(2026, 10, 99_000)], 2026, 10)).toMatchObject({ amount: 1_000 });
-    expect(due([cash(2026, 10, 100_000)], 2026, 10)).toBeNull();
-  });
-
-  it("a shortfall in one month extends the schedule", () => {
-    const short = [payroll(2026, 10, 6_667)]; // only 6,667 fitted in October
-    expect(due(short, 2026, 11)).toMatchObject({ amount: 16_667, installmentNo: 2, totalInstallments: 7 });
+  it("the entry that clears the balance completes the loan", () => {
+    const o = [set(2026, 10, 70_000), set(2026, 11, 30_000)];
+    expect(due([], 2026, 10, o)).toMatchObject({ amount: 70_000 });
+    const after = [payroll(2026, 10, 70_000)];
+    expect(due(after, 2026, 11, o)).toMatchObject({ amount: 30_000 });
+    expect(outstandingBalance(loan.amount, [...after, payroll(2026, 11, 30_000)])).toBe(0);
   });
 });
 
 describe("capLoanDeductions", () => {
-  const dues = [
-    { loanId: "A", amount: 10_000, installmentNo: 1, totalInstallments: 5 },
-    { loanId: "B", amount: 5_000, installmentNo: 2, totalInstallments: 4 },
-  ];
+  const dues = [{ loanId: "A", amount: 10_000 }, { loanId: "B", amount: 5_000 }];
 
-  it("keeps every installment when net pay covers them", () => {
+  it("keeps every entered installment when net pay covers them", () => {
     expect(capLoanDeductions(dues, 50_000)).toMatchObject({ shortfall: 0, deductions: [{ loanId: "A", amount: 10_000 }, { loanId: "B", amount: 5_000 }] });
   });
 
-  it("serves older loans first and drops what does not fit", () => {
+  it("caps at net pay: older loans first, the rest stays outstanding", () => {
     const r = capLoanDeductions(dues, 12_000);
     expect(r.deductions).toMatchObject([{ loanId: "A", amount: 10_000 }, { loanId: "B", amount: 2_000, requested: 5_000 }]);
     expect(r.shortfall).toBe(3_000);
@@ -156,54 +78,36 @@ describe("capLoanDeductions", () => {
   });
 
   it("labels the line and says when it was reduced", () => {
-    expect(loanLineLabel(dues[0]!)).toBe("Loan repayment (installment 1 of 5)");
+    expect(loanLineLabel(dues[0]!)).toBe("Loan repayment");
     expect(loanLineLabel({ ...dues[1]!, amount: 2_000, requested: 5_000 })).toMatch(/reduced/);
   });
 });
 
-describe("buildSchedule", () => {
-  it("projects every installment of a fresh loan", () => {
-    const rows = buildSchedule(loan, [], [], new Set());
-    expect(rows.map((r) => [r.key, r.status, r.amount, r.installmentNo])).toEqual([
-      ["2026-10", "UPCOMING", 16_667, 1], ["2026-11", "UPCOMING", 16_667, 2], ["2026-12", "UPCOMING", 16_667, 3],
-      ["2027-01", "UPCOMING", 16_667, 4], ["2027-02", "UPCOMING", 16_667, 5], ["2027-03", "UPCOMING", 16_665, 6],
+describe("buildMonthList", () => {
+  const open = { year: 2026, month: 11 };
+
+  it("lists past repayments, then the first open month and the six after it", () => {
+    const rows = buildMonthList(loan, [payroll(2026, 10, 10_000), cash(2026, 10, 5_000)], [set(2026, 10, 10_000)], open);
+    expect(rows[0]).toMatchObject({ key: "2026-10", open: false, payroll: 10_000, cash: 5_000, entered: 10_000 });
+    expect(rows.slice(1).map((r) => [r.key, r.open])).toEqual([
+      ["2026-11", true], ["2026-12", true], ["2027-01", true], ["2027-02", true], ["2027-03", true], ["2027-04", true], ["2027-05", true],
     ]);
-    expect(rows.at(-1)!.balanceAfter).toBe(0);
   });
 
-  it("shows paid, paused and missed months and extends past them", () => {
-    const rows = buildSchedule(loan, [payroll(2026, 10, 16_667), cash(2026, 12, 10_000)], [skip(2026, 11)], new Set(["2026-10", "2026-11"]));
-    expect(rows.slice(0, 3).map((r) => [r.key, r.status, r.amount, r.cash])).toEqual([
-      ["2026-10", "PAID", 16_667, 0], ["2026-11", "PAUSED", 0, 0], ["2026-12", "UPCOMING", 16_667, 10_000],
-    ]);
-    expect(rows.reduce((s, r) => s + r.amount + r.cash, 0)).toBe(100_000);
-    expect(rows.at(-1)!.balanceAfter).toBe(0);
+  it("shows entered amounts and adds later months that have an entry", () => {
+    const rows = buildMonthList(loan, [], [set(2026, 12, 8_000), set(2027, 9, 3_000)], open);
+    expect(rows.find((r) => r.key === "2026-12")).toMatchObject({ entered: 8_000, open: true });
+    expect(rows.at(-1)).toMatchObject({ key: "2027-09", entered: 3_000, open: true });
   });
 
-  it("shows adjusted months with their planned amount and still adds up to the loan", () => {
-    const rows = buildSchedule(loan, [], [set(2026, 11, 40_000), set(2026, 12, 0), set(2027, 1, 2_000)], new Set());
-    expect(rows.slice(0, 5).map((r) => [r.key, r.status, r.amount, r.adjusted])).toEqual([
-      ["2026-10", "UPCOMING", 16_667, false], ["2026-11", "UPCOMING", 40_000, true], ["2026-12", "PAUSED", 0, true],
-      ["2027-01", "UPCOMING", 2_000, true], ["2027-02", "UPCOMING", 16_667, false],
-    ]);
-    expect(rows.reduce((s, r) => s + r.amount, 0)).toBe(100_000);
-    expect(rows.at(-1)!.balanceAfter).toBe(0);
+  it("skips old entries for closed months that deducted nothing", () => {
+    expect(buildMonthList(loan, [], [set(2026, 9, 8_000)], open).some((r) => r.key === "2026-09")).toBe(false);
   });
 
-  it("caps an adjusted month at the balance left", () => {
-    const rows = buildSchedule(loan, [], [set(2026, 10, 150_000)], new Set());
-    expect(rows.map((r) => [r.key, r.amount, r.balanceAfter])).toEqual([["2026-10", 100_000, 0]]);
-  });
-
-  it("marks a closed month with no repayment as not deducted", () => {
-    const rows = buildSchedule(loan, [], [], new Set(["2026-10"]));
-    expect(rows[0]).toMatchObject({ key: "2026-10", status: "NOT_DEDUCTED", amount: 0 });
-    expect(rows.filter((r) => r.status === "UPCOMING")).toHaveLength(6);
-  });
-
-  it("does not project a cancelled loan", () => {
-    const rows = buildSchedule({ ...loan, status: "CANCELLED" }, [payroll(2026, 10, 16_667)], [], new Set(["2026-10"]));
-    expect(rows.map((r) => r.status)).toEqual(["PAID"]);
+  it("lists no open months once the loan is completed or cancelled", () => {
+    const paid = [payroll(2026, 10, 100_000)];
+    expect(buildMonthList({ ...loan, status: "COMPLETED" }, paid, [set(2026, 12, 1)], open).map((r) => r.key)).toEqual(["2026-10"]);
+    expect(buildMonthList({ ...loan, status: "CANCELLED" }, [], [], open)).toEqual([]);
   });
 });
 
@@ -226,14 +130,14 @@ describe("payroll with loans", () => {
     const r = calculatePay({
       ...base,
       loans: [
-        { loanId: "A", amount: 10_000, installmentNo: 3, totalInstallments: 6 },
-        { loanId: "B", amount: 5_000, installmentNo: 1, totalInstallments: 2 },
+        { loanId: "A", amount: 10_000 },
+        { loanId: "B", amount: 5_000 },
       ],
     });
     const lines = r.lines.filter((l) => l.code === "LOAN");
     expect(lines).toEqual([
-      { kind: "DEDUCTION", code: "LOAN", label: "Loan repayment (installment 3 of 6)", amount: 10_000, loanId: "A", planned: 10_000 },
-      { kind: "DEDUCTION", code: "LOAN", label: "Loan repayment (installment 1 of 2)", amount: 5_000, loanId: "B", planned: 5_000 },
+      { kind: "DEDUCTION", code: "LOAN", label: "Loan repayment", amount: 10_000, loanId: "A", planned: 10_000 },
+      { kind: "DEDUCTION", code: "LOAN", label: "Loan repayment", amount: 5_000, loanId: "B", planned: 5_000 },
     ]);
     expect(r.netPay).toBe(45_000);
     expect(r.warnings).toEqual([]);
@@ -243,7 +147,7 @@ describe("payroll with loans", () => {
     const r = calculatePay({
       ...base,
       adjustments: [{ kind: "DEDUCTION", label: "Damage recovery", amount: 55_000 }],
-      loans: [{ loanId: "A", amount: 10_000, installmentNo: 1, totalInstallments: 6 }],
+      loans: [{ loanId: "A", amount: 10_000 }],
     });
     expect(r.lines.find((l) => l.code === "LOAN")).toMatchObject({ amount: 5_000, planned: 10_000 });
     expect(r.netPay).toBe(0);
@@ -251,7 +155,7 @@ describe("payroll with loans", () => {
   });
 
   it("drops the loan line entirely when nothing is left", () => {
-    const r = calculatePay({ ...base, salary: null, loans: [{ loanId: "A", amount: 10_000, installmentNo: 1, totalInstallments: 6 }] });
+    const r = calculatePay({ ...base, salary: null, loans: [{ loanId: "A", amount: 10_000 }] });
     expect(r.lines.some((l) => l.code === "LOAN")).toBe(false);
     expect(r.netPay).toBe(0);
   });

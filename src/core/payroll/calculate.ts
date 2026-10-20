@@ -37,7 +37,7 @@ export type PayInput = {
   adjustments: readonly { kind: "EARNING" | "DEDUCTION"; label: string; amount: number }[];
   /** Dates of approved UNPAID leave (paid leave is not deducted). */
   unpaidLeaveDates?: ReadonlySet<string>;
-  /** Loan installments due this month, oldest loan first (src/core/loans/schedule.ts loanDueFor). */
+  /** Loan installments HR entered for this month, oldest loan first (src/core/loans/schedule.ts loanDueFor). */
   loans?: readonly LoanDue[];
 };
 

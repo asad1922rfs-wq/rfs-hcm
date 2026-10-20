@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, PageHeader, StatCard } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 import { formatDate, formatPKR } from "@/lib/format";
-import { todayInPKT } from "@/lib/dates";
+import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { DecideLoanButtons, LoanFormDialog } from "./loans-client";
 import { LoanStatusBadge } from "./status-badge";
@@ -25,10 +25,8 @@ function LoansTable({ rows, showEmployee, actions }: { rows: LoanRow[]; showEmpl
           <TableRow>
             {showEmployee && <TableHead>Employee</TableHead>}
             <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="hidden sm:table-cell">Installments</TableHead>
-            <TableHead className="hidden md:table-cell">First deduction</TableHead>
             <TableHead className="text-right">Outstanding</TableHead>
-            <TableHead className="hidden lg:table-cell">Next deduction</TableHead>
+            <TableHead className="hidden sm:table-cell">Next deduction</TableHead>
             <TableHead>Status</TableHead>
             <TableHead />
           </TableRow>
@@ -44,15 +42,10 @@ function LoansTable({ rows, showEmployee, actions }: { rows: LoanRow[]; showEmpl
               )}
               <TableCell className="text-right">
                 <PrivateAmount value={formatPKR(r.amount)} />
-                <span className="block text-xs text-muted-foreground">{formatDate(r.createdAt)}</span>
+                <span className="block text-xs text-muted-foreground">{formatDate(r.givenOn ?? r.createdAt)}</span>
               </TableCell>
-              <TableCell className="hidden sm:table-cell">
-                {r.installmentChanged ? <><PrivateAmount value={formatPKR(r.installmentAmount)} /> / month</> : <>{r.installments} × <PrivateAmount value={formatPKR(r.installmentAmount)} /></>}
-                {!r.installmentChanged && r.lastInstallment !== r.installmentAmount && <span className="block text-xs text-muted-foreground">last <PrivateAmount value={formatPKR(r.lastInstallment)} /></span>}
-              </TableCell>
-              <TableCell className="hidden whitespace-nowrap md:table-cell">{r.startLabel}</TableCell>
               <TableCell className="text-right"><PrivateAmount value={formatPKR(r.outstanding)} /></TableCell>
-              <TableCell className="hidden whitespace-nowrap lg:table-cell">
+              <TableCell className="hidden whitespace-nowrap sm:table-cell">
                 {r.next ? <>{loanMonthLabel(r.next.year, r.next.month)} · <PrivateAmount value={formatPKR(r.next.amount)} /></> : <span className="text-muted-foreground">—</span>}
               </TableCell>
               <TableCell>
@@ -92,6 +85,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const current = { year: today.getUTCFullYear(), month: today.getUTCMonth() + 1 };
   const minMonth = monthKey(open.year, open.month);
   const defaultMonth = [minMonth, monthKey(current.year, current.month)].sort().at(-1)!;
+  const todayKey = toDateOnlyString(today);
 
   const [mine, rows, pendingCount] = await Promise.all([
     view === "mine" ? myLoans(actor) : Promise.resolve([]),
@@ -123,11 +117,11 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
     <PrivacyGroup>
       <PageHeader
         title="Loans"
-        description="Interest-free salary advances, repaid by monthly installments deducted in payroll (HR/Finance can change a month's installment). Repayments are recorded when the month's payroll is approved."
+        description="Interest-free salary advances. Each month HR/Finance enters the installment to deduct in payroll; months without an entry deduct nothing. Repayments are recorded when the month's payroll is approved."
         actions={
           <>
             <PrivacyToggle className="h-9" />
-            {employees && <LoanFormDialog employees={employees} minMonth={minMonth} defaultMonth={defaultMonth} trigger="Add loan" />}
+            {employees && <LoanFormDialog employees={employees} minMonth={minMonth} defaultMonth={defaultMonth} today={todayKey} trigger="Add loan" />}
           </>
         }
       />
@@ -142,12 +136,12 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
               {(() => {
                 const next = running.map((l) => l.next).filter((n): n is NonNullable<typeof n> => !!n).sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month))[0];
                 const total = next ? running.filter((l) => l.next?.year === next.year && l.next.month === next.month).reduce((s, l) => s + l.next!.amount, 0) : 0;
-                return <StatCard label="Next deduction" value={next ? <PrivateAmount value={formatPKR(total)} /> : "—"} hint={next ? `${loanMonthLabel(next.year, next.month)} salary` : "Nothing scheduled"} icon={Hourglass} tone="info" />;
+                return <StatCard label="Next deduction" value={next ? <PrivateAmount value={formatPKR(total)} /> : "—"} hint={next ? `${loanMonthLabel(next.year, next.month)} salary` : "Nothing entered"} icon={Hourglass} tone="info" />;
               })()}
             </section>
           )}
           {mine.length === 0 ? (
-            <EmptyState title="No loans" description="Salary advances are added by HR/Finance and repaid in monthly installments from your salary." />
+            <EmptyState title="No loans" description="Salary advances are added by HR/Finance and repaid from your salary in the months they set." />
           ) : (
             <LoansTable rows={mine} />
           )}
@@ -159,7 +153,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
           rows={rows}
           showEmployee
           actions={(r) => (r.employee.id === actor.employeeId ? <span className="self-center text-xs text-muted-foreground">Your request</span> : (
-            <DecideLoanButtons id={r.id} name={r.employee.fullName} startMonth={monthKey(r.startYear, r.startMonth)} minMonth={minMonth} />
+            <DecideLoanButtons id={r.id} name={r.employee.fullName} />
           ))}
         />
       )}

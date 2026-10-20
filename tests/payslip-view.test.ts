@@ -26,7 +26,7 @@ describe("earnedToDate", () => {
   });
 
   it("starts at the joining date and ignores the not-employed proration and loans", () => {
-    const input = { ...base, joiningDate: "2026-10-10", loans: [{ loanId: "l1", installmentNo: 1, totalInstallments: 5, amount: 10_000 }] };
+    const input = { ...base, joiningDate: "2026-10-10", loans: [{ loanId: "l1", amount: 10_000 }] };
     const r = calculatePay(input);
     expect(r.lines.some((l) => l.code === "PRORATION")).toBe(true);
     expect(r.lines.some((l) => l.code === "LOAN")).toBe(true);
@@ -51,14 +51,14 @@ describe("payslipLineLabel", () => {
     ]);
     const r = calculatePay({
       ...base, today: "2026-11-01", joiningDate: "2026-10-01", days, unpaidLeaveDates: new Set(["2026-10-20", "2026-10-21"]),
-      loans: [{ loanId: "l1", installmentNo: 2, totalInstallments: 6, amount: 5000 }],
+      loans: [{ loanId: "l1", amount: 5000 }],
     });
     expect(r.lines.map(payslipLineLabel)).toEqual([
       "Basic Salary",
       "Absent Deduction (10.00 Absent Days)",
       "Unpaid Leave (2 days)",
       "Late / Missing Punch (1 day)",
-      "Loan (Installment 2 of 6)",
+      "Loan",
     ]);
   });
 

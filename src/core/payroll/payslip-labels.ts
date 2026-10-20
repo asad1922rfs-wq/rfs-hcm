@@ -29,7 +29,8 @@ export function payslipLineLabel(line: Pick<PayLine, "code" | "label">): string 
     case "LOAN": {
       const m = /installment (\d+) of (\d+)/i.exec(line.label);
       const reduced = /reduced/i.test(line.label) ? ", reduced" : "";
-      return m ? `Loan (Installment ${m[1]} of ${m[2]}${reduced})` : "Loan";
+      // Older lines say "installment N of M"; loans no longer have a fixed number of installments.
+      return m ? `Loan (Installment ${m[1]} of ${m[2]}${reduced})` : reduced ? "Loan (reduced)" : "Loan";
     }
     case "PRORATION":
     case "NOT_EMPLOYED": {

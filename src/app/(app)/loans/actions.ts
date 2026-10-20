@@ -5,9 +5,9 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  cancelLoan, changeRegularInstallment, createLoan, decideLoan, recordCashRepayment, resetMonthInstallment, setMonthInstallment,
+  cancelLoan, createLoan, decideLoan, recordCashRepayment, setMonthInstallment,
 } from "@/server/services/loans";
-import { MAX_INSTALLMENTS, MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
+import { MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
 import { optionalText, requiredText } from "@/lib/validation";
 import type { ActionResult } from "@/server/errors";
 
@@ -31,20 +31,25 @@ const wholeRupees = (label: string, max: number) =>
     .max(max, `${label} can be at most ${max.toLocaleString("en-PK")}.`);
 
 const loanSchema = z.object({
+  employeeId: requiredText("Employee", 40),
   amount: wholeRupees("Amount", MAX_LOAN_AMOUNT),
-  installments: z.coerce.number({ error: "Enter the number of installments." }).int("Whole months only.").min(1, "At least 1 installment.").max(MAX_INSTALLMENTS, `At most ${MAX_INSTALLMENTS} installments.`),
-  start: monthField("first deduction month"),
   reason: z.string().trim().min(3, "Give a reason.").max(1000),
+  givenOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose the date given."),
+  deductAmount: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), wholeRupees("Installment", MAX_LOAN_AMOUNT).optional()),
+  deductMonth: z.string().optional(),
 });
-
-const toInput = (v: z.infer<typeof loanSchema>) => ({ amount: v.amount, installments: v.installments, startYear: v.start.year, startMonth: v.start.month, reason: v.reason });
 
 export async function createLoanAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   return runAction(async () => {
-    const input = loanSchema.extend({ employeeId: requiredText("Employee", 40) }).parse(formObject(fd));
-    const loan = await createLoan(await requireActor(), { ...toInput(input), employeeId: input.employeeId });
+    const input = loanSchema.parse(formObject(fd));
+    const deduct = input.deductAmount !== undefined ? { ...monthField("deduction month").parse(input.deductMonth), amount: input.deductAmount } : undefined;
+    const loan = await createLoan(await requireActor(), { employeeId: input.employeeId, amount: input.amount, reason: input.reason, givenOn: input.givenOn, deduct });
     refresh(loan.id);
-    return { ok: true, message: "Loan added. Installments are deducted in payroll from the first deduction month." };
+    revalidatePath("/payroll");
+    return {
+      ok: true,
+      message: deduct ? "Loan added. The installment is deducted in that month's payroll." : "Loan added. Enter an installment on the loan for each month it should be deducted.",
+    };
   });
 }
 
@@ -65,38 +70,17 @@ export async function cancelLoanAction(id: string, note: string): Promise<Action
   });
 }
 
-const installmentAmount = (allowZero: boolean) =>
-  z.coerce
-    .number({ error: "Enter an amount." })
-    .int("Whole rupees only.")
-    .min(allowZero ? 0 : 1, allowZero ? "The amount cannot be negative." : "The installment must be at least Rs 1.")
-    .max(MAX_LOAN_AMOUNT);
+const installmentAmount = z.coerce.number({ error: "Enter an amount." }).int("Whole rupees only.").min(0, "The amount cannot be negative.").max(MAX_LOAN_AMOUNT);
 
-/** Custom installment for one month (0 skips it), or `null` to go back to the regular installment. */
-export async function monthInstallmentAction(id: string, month: string, amount: string | null): Promise<ActionResult> {
+/** The installment to deduct in one month; 0 or empty clears it (nothing deducted). */
+export async function monthInstallmentAction(id: string, month: string, amount: string): Promise<ActionResult> {
   return runAction(async () => {
     const m = monthField("month").parse(month);
-    const actor = await requireActor();
-    if (amount === null) await resetMonthInstallment(actor, id, m.year, m.month);
-    else {
-      const value = installmentAmount(true).parse(amount);
-      await setMonthInstallment(actor, id, m.year, m.month, value);
-    }
+    const value = installmentAmount.parse(amount.trim() === "" ? "0" : amount.trim());
+    await setMonthInstallment(await requireActor(), id, m.year, m.month, value);
     refresh(id);
     revalidatePath("/payroll");
-    return {
-      ok: true,
-      message: amount === null ? "Back to the regular installment for that month." : Number(amount) === 0 ? "No installment will be deducted that month." : "Installment changed for that month.",
-    };
-  });
-}
-
-export async function changeInstallmentAction(id: string, amount: string): Promise<ActionResult> {
-  return runAction(async () => {
-    await changeRegularInstallment(await requireActor(), id, installmentAmount(false).parse(amount));
-    refresh(id);
-    revalidatePath("/payroll");
-    return { ok: true, message: "Monthly installment changed from the next open payroll month." };
+    return { ok: true, message: value === 0 ? "Nothing will be deducted that month." : "Installment saved for that month." };
   });
 }
 

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, HandCoins, Hourglass, Wallet } from "lucide-react";
 import { can, requirePagePermission } from "@/server/auth/session";
 import { getLoan, loanMonthLabel } from "@/server/services/loans";
-import { monthKey, type ScheduleRowStatus } from "@/core/loans/schedule";
 import { ForbiddenError, NotFoundError } from "@/server/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,18 +10,10 @@ import { DetailList, EmptyState, StatCard } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 import { formatDate, formatDateTime, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
-import { cn } from "@/lib/utils";
-import { CancelLoanButton, CashRepaymentDialog, ChangeInstallmentDialog, DecideLoanButtons, MonthInstallmentButtons } from "../loans-client";
+import { CancelLoanButton, CashRepaymentDialog, DecideLoanButtons, MonthInstallmentField } from "../loans-client";
 import { LoanStatusBadge } from "../status-badge";
 
 export const metadata = { title: "Loan" };
-
-const ROW_STATUS: Record<ScheduleRowStatus, { label: string; className: string }> = {
-  PAID: { label: "Paid", className: "bg-success/15 text-success" },
-  PAUSED: { label: "Skipped", className: "bg-warning/20 text-warning-foreground dark:text-warning" },
-  NOT_DEDUCTED: { label: "Not deducted", className: "bg-muted text-muted-foreground" },
-  UPCOMING: { label: "Upcoming", className: "bg-info/10 text-info" },
-};
 
 export default async function LoanPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requirePagePermission("loan.read", "self");
@@ -45,15 +36,14 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
             Loan · {loan.employee.fullName} <LoanStatusBadge status={loan.status} />
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {loan.employee.employeeCode}{loan.employee.department ? ` · ${loan.employee.department.name}` : ""} · requested {formatDate(loan.createdAt)}
+            {loan.employee.employeeCode}{loan.employee.department ? ` · ${loan.employee.department.name}` : ""} · given {formatDate(loan.givenOn ?? loan.createdAt)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <PrivacyToggle className="h-9" />
           {canManage && loan.status === "PENDING" && !loan.isOwn && (
-            <DecideLoanButtons id={loan.id} name={loan.employee.fullName} startMonth={monthKey(loan.startYear, loan.startMonth)} minMonth={loan.firstOpenMonth} />
+            <DecideLoanButtons id={loan.id} name={loan.employee.fullName} />
           )}
-          {manageSchedule && loan.outstanding > 0 && <ChangeInstallmentDialog id={loan.id} current={loan.installmentAmount} max={loan.outstanding} />}
           {canManage && running && <CashRepaymentDialog id={loan.id} outstanding={loan.outstanding} today={today} />}
           {manageSchedule && <CancelLoanButton id={loan.id} running label="Cancel loan" />}
           {loan.status === "PENDING" && loan.isOwn && <CancelLoanButton id={loan.id} running={false} label="Withdraw request" />}
@@ -61,13 +51,13 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Loan amount" value={<PrivateAmount value={formatPKR(loan.amount)} />} hint={loan.installmentChanged ? `${formatPKR(loan.installmentAmount)} a month (changed)` : `${loan.installments} × ${formatPKR(loan.installmentAmount)}${loan.lastInstallment !== loan.installmentAmount ? `, last ${formatPKR(loan.lastInstallment)}` : ""}`} icon={HandCoins} />
+        <StatCard label="Loan amount" value={<PrivateAmount value={formatPKR(loan.amount)} />} hint={`Given ${formatDate(loan.givenOn ?? loan.createdAt)}`} icon={HandCoins} />
         <StatCard label="Repaid" value={<PrivateAmount value={formatPKR(loan.repaid)} />} icon={Wallet} tone="success" />
         <StatCard label={loan.status === "CANCELLED" ? "Written off" : "Outstanding"} value={<PrivateAmount value={formatPKR(loan.status === "CANCELLED" ? loan.amount - loan.repaid : loan.outstanding)} />} icon={HandCoins} tone="warning" />
         <StatCard
           label="Next deduction"
           value={loan.next ? <PrivateAmount value={formatPKR(loan.next.amount)} /> : "—"}
-          hint={loan.next ? `${loanMonthLabel(loan.next.year, loan.next.month)} payroll · capped so net pay stays above zero` : running ? "Nothing scheduled" : `Starts ${loan.startLabel}`}
+          hint={loan.next ? `${loanMonthLabel(loan.next.year, loan.next.month)} payroll · capped so net pay stays above zero` : running ? "No installment entered" : undefined}
           icon={Hourglass}
           tone="info"
         />
@@ -75,46 +65,41 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card className="gap-0 py-0">
-          <CardHeader className="border-b py-4"><CardTitle>Schedule</CardTitle></CardHeader>
-          {loan.schedule.length === 0 ? (
-            <CardContent className="py-6"><EmptyState title="No schedule" description="This loan was not approved." /></CardContent>
+          <CardHeader className="border-b py-4"><CardTitle>Monthly installments</CardTitle></CardHeader>
+          {loan.months.length === 0 ? (
+            <CardContent className="py-6"><EmptyState title="Nothing yet" description={running ? "No repayments yet." : "This loan has no repayments."} /></CardContent>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Month</TableHead>
-                  <TableHead>Installment</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Payroll</TableHead>
                   <TableHead className="text-right">Cash</TableHead>
-                  <TableHead className="text-right">Balance after</TableHead>
-                  {manageSchedule && <TableHead />}
+                  <TableHead className="text-right">Installment</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loan.schedule.map((r) => {
-                  const status = ROW_STATUS[r.status];
-                  const changeable = manageSchedule && r.key >= loan.firstOpenMonth && (r.status === "UPCOMING" || r.status === "PAUSED");
-                  return (
-                    <TableRow key={r.key}>
-                      <TableCell className="whitespace-nowrap">{r.label}</TableCell>
-                      <TableCell className="tabular-nums">{r.installmentNo ?? "—"}</TableCell>
-                      <TableCell>
-                        <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", status.className)}>{status.label}</span>
-                        {r.adjusted && r.status !== "PAID" && <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Adjusted</span>}
-                      </TableCell>
-                      <TableCell className="text-right">{r.amount ? <PrivateAmount value={formatPKR(r.amount)} /> : "—"}</TableCell>
-                      <TableCell className="text-right">{r.cash ? <PrivateAmount value={formatPKR(r.cash)} /> : "—"}</TableCell>
-                      <TableCell className="text-right"><PrivateAmount value={formatPKR(r.balanceAfter)} /></TableCell>
-                      {manageSchedule && <TableCell className="text-right">{changeable && <MonthInstallmentButtons id={loan.id} month={r.key} label={r.label} amount={r.amount} adjusted={r.adjusted} max={loan.outstanding} />}</TableCell>}
-                    </TableRow>
-                  );
-                })}
+                {loan.months.map((r) => (
+                  <TableRow key={r.key}>
+                    <TableCell className="whitespace-nowrap">{r.label}</TableCell>
+                    <TableCell className="text-right">{r.payroll ? <PrivateAmount value={formatPKR(r.payroll)} /> : "—"}</TableCell>
+                    <TableCell className="text-right">{r.cash ? <PrivateAmount value={formatPKR(r.cash)} /> : "—"}</TableCell>
+                    <TableCell className="text-right">
+                      {manageSchedule && r.open ? (
+                        <MonthInstallmentField id={loan.id} month={r.key} label={r.label} amount={r.entered} max={loan.outstanding} />
+                      ) : r.entered ? (
+                        <PrivateAmount value={formatPKR(r.entered)} />
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}
           <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-            Upcoming amounts are expected deductions; “Adjusted” months deduct the amount HR set instead of the regular installment. Payroll deductions are recorded when the month&apos;s payroll is approved; if net pay is too low, the shortfall stays outstanding and the schedule runs longer.
+            Only the installment entered for a month is deducted from that month&apos;s payroll; a month without one deducts nothing. It is never more than the balance, and if net pay is too low the shortfall stays outstanding. Payroll deductions are recorded when the month&apos;s payroll is approved.
           </p>
         </Card>
 
@@ -125,7 +110,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
               <DetailList
                 items={[
                   { label: "Reason", value: <span className="whitespace-pre-line">{loan.reason}</span> },
-                  { label: "First deduction", value: loan.startLabel },
+                  { label: "Date given", value: formatDate(loan.givenOn ?? loan.createdAt) },
                   { label: "Requested by", value: loan.requestedBy },
                   ...(loan.decidedAt ? [{ label: loan.status === "REJECTED" ? "Rejected by" : "Approved by", value: `${loan.decidedBy ?? "—"} · ${formatDateTime(loan.decidedAt)}` }] : []),
                   ...(loan.decisionNote ? [{ label: "Decision note", value: loan.decisionNote }] : []),
