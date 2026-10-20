@@ -4,7 +4,9 @@
 //   * Interest-free. Installment = amount ÷ installments, rounded to whole rupees; the LAST installment takes the
 //     remainder so the installments add up to the amount exactly.
 //   * From the start month, each payroll deducts one installment (never more than the outstanding balance).
-//   * A paused month deducts nothing; a cash repayment lowers the balance, so the schedule ends sooner.
+//   * HR can override a single month: a custom amount (higher or lower than the regular installment, never more than
+//     the balance) or 0 to skip the month. A cash repayment lowers the balance, so the schedule ends sooner.
+//   * HR can change the regular installment of a running loan; the final installment then takes whatever is left.
 //   * Loan deductions never make net pay negative: what does not fit stays outstanding and the schedule extends.
 //   * The balance counts RECORDED repayments only. Payroll repayments are recorded when the run is approved, so
 //     recalculating a draft never counts its own deduction twice.
@@ -17,10 +19,14 @@ export type LoanTerms = {
   startYear: number;
   startMonth: number; // 1–12
   status: LoanStatusCode;
+  /** Regular monthly installment as stored on the loan. When it differs from the even split (HR changed it), every
+   *  installment is this amount and the final one takes what is left. */
+  installmentAmount?: number;
 };
 
 export type RepaymentRecord = { amount: number; source: "PAYROLL" | "CASH"; year: number; month: number };
-export type PauseRecord = { year: number; month: number };
+/** A per-month override: amount 0 (or null) skips the month, more than 0 deducts that instead of the regular installment. */
+export type MonthOverride = { year: number; month: number; amount: number | null };
 
 /** One loan's deduction for a payroll month, before the net-pay cap. */
 export type LoanDue = { loanId: string; amount: number; installmentNo: number; totalInstallments: number };
@@ -57,6 +63,20 @@ export function outstandingBalance(amount: number, repayments: readonly Pick<Rep
   return Math.max(0, Math.round(amount) - repayments.reduce((s, r) => s + Math.round(r.amount), 0));
 }
 
+/** The plan a loan runs on: the even split, or HR's changed regular installment. */
+export function planFor(loan: LoanTerms): { regular: number; last: number } {
+  const base = installmentPlan(loan.amount, loan.installments);
+  if (loan.installmentAmount === undefined || Math.round(loan.installmentAmount) === base.regular) return base;
+  const regular = Math.max(1, Math.round(loan.installmentAmount));
+  return { regular, last: regular };
+}
+
+/** The override amount for a month: undefined = regular installment, 0 = skip, > 0 = that amount. */
+export function overrideFor(overrides: readonly MonthOverride[], year: number, month: number): number | undefined {
+  const o = overrides.find((x) => x.year === year && x.month === month);
+  return o ? Math.max(0, Math.round(o.amount ?? 0)) : undefined;
+}
+
 /** What the next installment takes from a balance: the regular installment, or the whole balance once it is a final installment's worth. */
 function nextInstallment(balance: number, plan: { regular: number; last: number }): number {
   if (balance <= 0) return 0;
@@ -73,28 +93,30 @@ export function installmentsLeft(balance: number, plan: { regular: number; last:
 
 /**
  * The installment a loan deducts in a payroll month, or null when nothing is due: the loan is not approved
- * (pending, rejected, completed, cancelled), the month is before the start month or paused, or it is fully repaid.
+ * (pending, rejected, completed, cancelled), the month is before the start month or skipped, or it is fully repaid.
+ * A month override replaces the regular installment (capped at the balance).
  * A payroll repayment already recorded for this very month (an approved run) is ignored, so the answer is stable.
  */
 export function loanDueFor(
   loanId: string,
   loan: LoanTerms,
   repayments: readonly RepaymentRecord[],
-  pauses: readonly PauseRecord[],
+  overrides: readonly MonthOverride[],
   year: number,
   month: number,
 ): LoanDue | null {
   if (loan.status !== "APPROVED") return null;
   const target = monthIndex(year, month);
   if (target < monthIndex(loan.startYear, loan.startMonth)) return null;
-  if (pauses.some((p) => monthIndex(p.year, p.month) === target)) return null;
+  const override = overrideFor(overrides, year, month);
+  if (override === 0) return null;
 
   const counted = repayments.filter((r) => !(r.source === "PAYROLL" && monthIndex(r.year, r.month) === target));
   const balance = outstandingBalance(loan.amount, counted);
   if (balance <= 0) return null;
 
-  const plan = installmentPlan(loan.amount, loan.installments);
-  const amount = nextInstallment(balance, plan);
+  const plan = planFor(loan);
+  const amount = override === undefined ? nextInstallment(balance, plan) : Math.min(override, balance);
   const paidMonths = new Set(counted.filter((r) => r.source === "PAYROLL" && monthIndex(r.year, r.month) < target).map((r) => monthIndex(r.year, r.month)));
   const installmentNo = paidMonths.size + 1;
   return { loanId, amount, installmentNo, totalInstallments: installmentNo + installmentsLeft(balance - amount, plan) };
@@ -133,6 +155,8 @@ export type ScheduleRow = {
   status: ScheduleRowStatus;
   /** Deducted through payroll (PAID) or expected (UPCOMING) */
   amount: number;
+  /** HR set a custom amount (or 0 = skip, shown as PAUSED) for this month */
+  adjusted: boolean;
   /** Cash repaid in this month */
   cash: number;
   /** Balance after this month */
@@ -143,18 +167,17 @@ const MAX_SCHEDULE_ROWS = 240;
 
 /**
  * The whole schedule from the start month: what happened in months whose payroll is closed (approved or paid),
- * and what is expected from then on given the current balance and pauses. Months before the start month are
+ * and what is expected from then on given the current balance and month overrides. Months before the start month are
  * included only when they hold a cash payment.
  */
 export function buildSchedule(
   loan: LoanTerms,
   repayments: readonly RepaymentRecord[],
-  pauses: readonly PauseRecord[],
+  overrides: readonly MonthOverride[],
   closedMonths: ReadonlySet<string>,
 ): ScheduleRow[] {
-  const plan = installmentPlan(loan.amount, loan.installments);
+  const plan = planFor(loan);
   const start = monthIndex(loan.startYear, loan.startMonth);
-  const paused = new Set(pauses.map((p) => monthIndex(p.year, p.month)));
   const byMonth = new Map<number, { payroll: number; cash: number }>();
   for (const r of repayments) {
     const m = byMonth.get(monthIndex(r.year, r.month)) ?? { payroll: 0, cash: 0 };
@@ -181,6 +204,7 @@ export function buildSchedule(
     let status: ScheduleRowStatus;
     let amount = 0;
     let number: number | null = null;
+    const override = overrideFor(overrides, year, month);
     if (rec.payroll > 0) {
       status = "PAID";
       amount = rec.payroll;
@@ -188,17 +212,17 @@ export function buildSchedule(
     } else if (i < start) {
       if (rec.cash === 0) continue;
       status = "NOT_DEDUCTED";
-    } else if (paused.has(i)) {
+    } else if (override === 0) {
       status = "PAUSED";
     } else if (closed || !projecting || balance - rec.cash <= 0) {
       status = "NOT_DEDUCTED";
     } else {
       status = "UPCOMING";
-      amount = nextInstallment(balance - rec.cash, plan);
+      amount = override === undefined ? nextInstallment(balance - rec.cash, plan) : Math.min(override, balance - rec.cash);
       number = ++installmentNo;
     }
     balance = Math.max(0, balance - rec.cash - amount);
-    rows.push({ year, month, key, installmentNo: number, status, amount, cash: rec.cash, balanceAfter: balance });
+    rows.push({ year, month, key, installmentNo: number, status, amount, adjusted: override !== undefined, cash: rec.cash, balanceAfter: balance });
   }
   return rows;
 }

@@ -12,14 +12,14 @@ import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private
 import { formatDate, formatDateTime, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { CancelLoanButton, CashRepaymentDialog, DecideLoanButtons, PauseMonthButton } from "../loans-client";
+import { CancelLoanButton, CashRepaymentDialog, ChangeInstallmentDialog, DecideLoanButtons, MonthInstallmentButtons } from "../loans-client";
 import { LoanStatusBadge } from "../status-badge";
 
 export const metadata = { title: "Loan" };
 
 const ROW_STATUS: Record<ScheduleRowStatus, { label: string; className: string }> = {
   PAID: { label: "Paid", className: "bg-success/15 text-success" },
-  PAUSED: { label: "Paused", className: "bg-warning/20 text-warning-foreground dark:text-warning" },
+  PAUSED: { label: "Skipped", className: "bg-warning/20 text-warning-foreground dark:text-warning" },
   NOT_DEDUCTED: { label: "Not deducted", className: "bg-muted text-muted-foreground" },
   UPCOMING: { label: "Upcoming", className: "bg-info/10 text-info" },
 };
@@ -53,6 +53,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
           {canManage && loan.status === "PENDING" && !loan.isOwn && (
             <DecideLoanButtons id={loan.id} name={loan.employee.fullName} startMonth={monthKey(loan.startYear, loan.startMonth)} minMonth={loan.firstOpenMonth} />
           )}
+          {manageSchedule && loan.outstanding > 0 && <ChangeInstallmentDialog id={loan.id} current={loan.installmentAmount} max={loan.outstanding} />}
           {canManage && running && <CashRepaymentDialog id={loan.id} outstanding={loan.outstanding} today={today} />}
           {manageSchedule && <CancelLoanButton id={loan.id} running label="Cancel loan" />}
           {loan.status === "PENDING" && loan.isOwn && <CancelLoanButton id={loan.id} running={false} label="Withdraw request" />}
@@ -60,7 +61,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Loan amount" value={<PrivateAmount value={formatPKR(loan.amount)} />} hint={`${loan.installments} × ${formatPKR(loan.installmentAmount)}${loan.lastInstallment !== loan.installmentAmount ? `, last ${formatPKR(loan.lastInstallment)}` : ""}`} icon={HandCoins} />
+        <StatCard label="Loan amount" value={<PrivateAmount value={formatPKR(loan.amount)} />} hint={loan.installmentChanged ? `${formatPKR(loan.installmentAmount)} a month (changed)` : `${loan.installments} × ${formatPKR(loan.installmentAmount)}${loan.lastInstallment !== loan.installmentAmount ? `, last ${formatPKR(loan.lastInstallment)}` : ""}`} icon={HandCoins} />
         <StatCard label="Repaid" value={<PrivateAmount value={formatPKR(loan.repaid)} />} icon={Wallet} tone="success" />
         <StatCard label={loan.status === "CANCELLED" ? "Written off" : "Outstanding"} value={<PrivateAmount value={formatPKR(loan.status === "CANCELLED" ? loan.amount - loan.repaid : loan.outstanding)} />} icon={HandCoins} tone="warning" />
         <StatCard
@@ -98,11 +99,14 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
                     <TableRow key={r.key}>
                       <TableCell className="whitespace-nowrap">{r.label}</TableCell>
                       <TableCell className="tabular-nums">{r.installmentNo ?? "—"}</TableCell>
-                      <TableCell><span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", status.className)}>{status.label}</span></TableCell>
+                      <TableCell>
+                        <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", status.className)}>{status.label}</span>
+                        {r.adjusted && r.status !== "PAID" && <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Adjusted</span>}
+                      </TableCell>
                       <TableCell className="text-right">{r.amount ? <PrivateAmount value={formatPKR(r.amount)} /> : "—"}</TableCell>
                       <TableCell className="text-right">{r.cash ? <PrivateAmount value={formatPKR(r.cash)} /> : "—"}</TableCell>
                       <TableCell className="text-right"><PrivateAmount value={formatPKR(r.balanceAfter)} /></TableCell>
-                      {manageSchedule && <TableCell className="text-right">{changeable && <PauseMonthButton id={loan.id} month={r.key} paused={r.status === "PAUSED"} label={r.label} />}</TableCell>}
+                      {manageSchedule && <TableCell className="text-right">{changeable && <MonthInstallmentButtons id={loan.id} month={r.key} label={r.label} amount={r.amount} adjusted={r.adjusted} max={loan.outstanding} />}</TableCell>}
                     </TableRow>
                   );
                 })}
@@ -110,7 +114,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
             </Table>
           )}
           <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-            Upcoming amounts are expected deductions. Payroll deductions are recorded when the month&apos;s payroll is approved; if net pay is too low, the shortfall stays outstanding and the schedule runs longer.
+            Upcoming amounts are expected deductions; “Adjusted” months deduct the amount HR set instead of the regular installment. Payroll deductions are recorded when the month&apos;s payroll is approved; if net pay is too low, the shortfall stays outstanding and the schedule runs longer.
           </p>
         </Card>
 

@@ -7,8 +7,8 @@ import { assertPermission, can, type Actor } from "@/server/auth/session";
 import { canAccessEmployee, scopedEmployeeWhere } from "@/server/auth/scope";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import {
-  buildSchedule, fromMonthIndex, installmentPlan, loanDueFor, MAX_INSTALLMENTS, MAX_LOAN_AMOUNT, monthIndex, monthKey, outstandingBalance,
-  type LoanDue, type LoanTerms, type RepaymentRecord,
+  buildSchedule, fromMonthIndex, installmentPlan, loanDueFor, MAX_INSTALLMENTS, MAX_LOAN_AMOUNT, monthIndex, monthKey, outstandingBalance, planFor,
+  type LoanDue, type LoanTerms, type MonthOverride, type RepaymentRecord,
 } from "@/core/loans/schedule";
 import type { PayLine } from "@/core/payroll/calculate";
 import { parseDateOnly, todayInPKT } from "@/lib/dates";
@@ -17,14 +17,16 @@ import { attendanceStartOf } from "@/server/json-fields";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const loanMonthLabel = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
 
-/** A request can start at most this many months after the current month. */
+/** A loan can start at most this many months after the current month. */
 const MAX_MONTHS_AHEAD = 12;
 
-type LoanWithHistory = Prisma.LoanGetPayload<{ include: { repayments: true; pauses: true } }>;
+type LoanWithHistory = Prisma.LoanGetPayload<{ include: { repayments: true; monthOverrides: true } }>;
 
-const termsOf = (l: { amount: Prisma.Decimal; installments: number; startYear: number; startMonth: number; status: LoanStatus }): LoanTerms => ({
-  amount: Number(l.amount), installments: l.installments, startYear: l.startYear, startMonth: l.startMonth, status: l.status,
+const termsOf = (l: { amount: Prisma.Decimal; installments: number; installmentAmount: Prisma.Decimal; startYear: number; startMonth: number; status: LoanStatus }): LoanTerms => ({
+  amount: Number(l.amount), installments: l.installments, installmentAmount: Number(l.installmentAmount), startYear: l.startYear, startMonth: l.startMonth, status: l.status,
 });
+const overridesOf = (l: { monthOverrides: { year: number; month: number; amount: Prisma.Decimal | null }[] }): MonthOverride[] =>
+  l.monthOverrides.map((o) => ({ year: o.year, month: o.month, amount: o.amount === null ? null : Number(o.amount) }));
 const repaymentsOf = (l: LoanWithHistory): RepaymentRecord[] =>
   l.repayments.map((r) => ({ amount: Number(r.amount), source: r.source, year: r.year, month: r.month }));
 const balanceOf = (l: LoanWithHistory) => outstandingBalance(Number(l.amount), l.repayments.map((r) => ({ amount: Number(r.amount) })));
@@ -37,7 +39,7 @@ async function closedPayrollMonths(): Promise<Set<string>> {
   return new Set(runs.map((r) => monthKey(r.year, r.month)));
 }
 
-/** The earliest month a loan can start or be paused in: after the last closed payroll, and not before attendance is tracked. */
+/** The earliest month a loan can start or have an installment changed in: after the last closed payroll, and not before attendance is tracked. */
 export async function firstOpenPayrollMonth(): Promise<{ year: number; month: number }> {
   const [lastClosed, company] = await Promise.all([
     db.payrollRun.findFirst({ where: { status: { in: ["APPROVED", "PAID"] } }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { year: true, month: true } }),
@@ -77,31 +79,10 @@ function assertTerms(amount: number, installments: number) {
 
 export type LoanInput = { amount: number; installments: number; startYear: number; startMonth: number; reason: string };
 
-/** An employee asks for a loan; HR/Finance decides. */
-export async function requestLoan(actor: Actor, input: LoanInput) {
-  assertPermission(actor, "loan.request", "self");
-  if (!actor.employeeId) throw new AppError("Your account is not linked to an employee record.");
-  assertTerms(input.amount, input.installments);
-  await assertStartMonth(input.startYear, input.startMonth);
-  if (input.reason.trim().length < 3) throw new AppError("Give a reason for the loan.");
-  const pending = await db.loan.count({ where: { employeeId: actor.employeeId, status: "PENDING" } });
-  if (pending > 0) throw new AppError("You already have a loan request waiting for a decision.");
-
-  const loan = await db.loan.create({
-    data: {
-      employeeId: actor.employeeId, amount: new Prisma.Decimal(input.amount), installments: input.installments,
-      installmentAmount: new Prisma.Decimal(installmentPlan(input.amount, input.installments).regular),
-      startYear: input.startYear, startMonth: input.startMonth, reason: input.reason.trim(), status: "PENDING", requestedById: actor.userId,
-    },
-  });
-  await recordAudit({ actor, action: "loan.request", entityType: "Loan", entityId: loan.id, after: loan });
-  return loan;
-}
-
 /** HR/Finance records a loan directly for an employee; it is approved at once. */
 export async function createLoan(actor: Actor, input: LoanInput & { employeeId: string }) {
   assertPermission(actor, "loan.manage", "all");
-  if (input.employeeId === actor.employeeId) throw new ForbiddenError("You cannot give yourself a loan — request it so someone else approves it.");
+  if (input.employeeId === actor.employeeId) throw new ForbiddenError("You cannot give yourself a loan — another HR/Finance user must add it.");
   assertTerms(input.amount, input.installments);
   await assertStartMonth(input.startYear, input.startMonth);
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the loan.");
@@ -122,12 +103,15 @@ export async function createLoan(actor: Actor, input: LoanInput & { employeeId: 
 }
 
 async function loadLoan(id: string) {
-  const loan = await db.loan.findUnique({ where: { id }, include: { repayments: true, pauses: true, employee: { select: { id: true, fullName: true } } } });
+  const loan = await db.loan.findUnique({ where: { id }, include: { repayments: true, monthOverrides: true, employee: { select: { id: true, fullName: true } } } });
   if (!loan) throw new NotFoundError("Loan not found.");
   return loan;
 }
 
-/** Approve (optionally moving the first deduction month) or reject a pending request. Nobody decides their own loan. */
+/**
+ * Approve (optionally moving the first deduction month) or reject a pending request (from before employees stopped
+ * requesting loans). Nobody decides their own loan.
+ */
 export async function decideLoan(actor: Actor, id: string, approve: boolean, note: string, start?: { year: number; month: number }) {
   assertPermission(actor, "loan.manage", "all");
   const loan = await loadLoan(id);
@@ -154,7 +138,7 @@ export async function decideLoan(actor: Actor, id: string, approve: boolean, not
 
 /**
  * HR/Finance cancels a pending or running loan (the outstanding balance is written off), or the employee withdraws
- * their own pending request.
+ * their own pending request (requests made before employees stopped requesting loans).
  */
 export async function cancelLoan(actor: Actor, id: string, note: string) {
   const loan = await loadLoan(id);
@@ -184,28 +168,81 @@ function assertNotOwn(actor: Actor, loan: { employeeId: string }) {
   if (loan.employeeId === actor.employeeId) throw new ForbiddenError("You cannot change the schedule of your own loan.");
 }
 
-/** No installment in this month; the schedule moves on by a month. */
-export async function pauseMonth(actor: Actor, loanId: string, year: number, month: number) {
-  assertPermission(actor, "loan.manage", "all");
-  const loan = await loadLoan(loanId);
-  assertRunning(loan);
-  assertNotOwn(actor, loan);
-  await assertOpenMonth(year, month, "The paused month");
-  if (loan.pauses.some((p) => p.year === year && p.month === month)) throw new AppError(`${loanMonthLabel(year, month)} is already paused.`);
-  await db.loanPause.create({ data: { loanId, year, month, createdById: actor.userId } });
-  await recordAudit({ actor, action: "loan.pause", entityType: "Loan", entityId: loanId, after: { month: monthKey(year, month) } });
+/** A month HR can still change: open payroll, not locked, and not already paid through an approved payroll. */
+async function assertChangeableMonth(loan: LoanWithHistory, year: number, month: number) {
+  await assertOpenMonth(year, month, "The month");
+  if (loan.repayments.some((r) => r.source === "PAYROLL" && r.year === year && r.month === month)) {
+    throw new AppError(`${loanMonthLabel(year, month)} was already deducted through an approved payroll.`);
+  }
+  if (monthIndex(year, month) < monthIndex(loan.startYear, loan.startMonth)) {
+    throw new AppError(`The loan starts in ${loanMonthLabel(loan.startYear, loan.startMonth)}.`);
+  }
 }
 
-export async function unpauseMonth(actor: Actor, loanId: string, year: number, month: number) {
+/**
+ * Deduct a custom amount in one month instead of the regular installment: higher, lower, or 0 to skip the month
+ * (the schedule then moves on by a month). Never more than the outstanding balance.
+ */
+export async function setMonthInstallment(actor: Actor, loanId: string, year: number, month: number, amount: number) {
   assertPermission(actor, "loan.manage", "all");
   const loan = await loadLoan(loanId);
   assertRunning(loan);
   assertNotOwn(actor, loan);
-  await assertOpenMonth(year, month, "The month");
-  const pause = loan.pauses.find((p) => p.year === year && p.month === month);
-  if (!pause) throw new AppError(`${loanMonthLabel(year, month)} is not paused.`);
-  await db.loanPause.delete({ where: { id: pause.id } });
-  await recordAudit({ actor, action: "loan.unpause", entityType: "Loan", entityId: loanId, before: { month: monthKey(year, month) } });
+  await assertChangeableMonth(loan, year, month);
+  const balance = balanceOf(loan);
+  if (!Number.isInteger(amount) || amount < 0) throw new AppError("Enter a whole-rupee amount (0 skips the month).");
+  if (amount > balance) throw new AppError(`The outstanding balance is only Rs ${balance.toLocaleString("en-PK")}.`);
+
+  const existing = loan.monthOverrides.find((o) => o.year === year && o.month === month);
+  const regular = loanDueFor(loan.id, termsOf(loan), repaymentsOf(loan), [], year, month)?.amount ?? 0;
+  await db.loanMonthOverride.upsert({
+    where: { loanId_year_month: { loanId, year, month } },
+    create: { loanId, year, month, amount: new Prisma.Decimal(amount), createdById: actor.userId },
+    update: { amount: new Prisma.Decimal(amount), createdById: actor.userId },
+  });
+  await recordAudit({
+    actor, action: "loan.month_override", entityType: "Loan", entityId: loanId,
+    before: { month: monthKey(year, month), amount: existing ? Number(existing.amount ?? 0) : null, regular },
+    after: { month: monthKey(year, month), amount, skipped: amount === 0 },
+  });
+}
+
+/** Back to the regular installment for that month. */
+export async function resetMonthInstallment(actor: Actor, loanId: string, year: number, month: number) {
+  assertPermission(actor, "loan.manage", "all");
+  const loan = await loadLoan(loanId);
+  assertRunning(loan);
+  assertNotOwn(actor, loan);
+  await assertChangeableMonth(loan, year, month);
+  const existing = loan.monthOverrides.find((o) => o.year === year && o.month === month);
+  if (!existing) throw new AppError(`${loanMonthLabel(year, month)} already deducts the regular installment.`);
+  await db.loanMonthOverride.delete({ where: { id: existing.id } });
+  await recordAudit({
+    actor, action: "loan.month_override_reset", entityType: "Loan", entityId: loanId,
+    before: { month: monthKey(year, month), amount: Number(existing.amount ?? 0) },
+  });
+}
+
+/**
+ * Change the regular monthly installment of a running loan. Months already paid stay as they are; from the next open
+ * payroll month the plan is this amount every month, the final installment taking what is left.
+ */
+export async function changeRegularInstallment(actor: Actor, loanId: string, installmentAmount: number) {
+  assertPermission(actor, "loan.manage", "all");
+  const loan = await loadLoan(loanId);
+  assertRunning(loan);
+  assertNotOwn(actor, loan);
+  const balance = balanceOf(loan);
+  if (!Number.isInteger(installmentAmount) || installmentAmount < 1) throw new AppError("Enter a whole-rupee installment of at least Rs 1.");
+  if (installmentAmount > balance) throw new AppError(`The outstanding balance is only Rs ${balance.toLocaleString("en-PK")}.`);
+  const before = planFor(termsOf(loan)).regular;
+  if (installmentAmount === before) throw new AppError(`The installment is already Rs ${before.toLocaleString("en-PK")}.`);
+  const open = await firstOpenPayrollMonth();
+  await db.loan.update({ where: { id: loanId }, data: { installmentAmount: new Prisma.Decimal(installmentAmount) } });
+  await recordAudit({
+    actor, action: "loan.installment_change", entityType: "Loan", entityId: loanId,
+    before: { installmentAmount: before }, after: { installmentAmount, fromMonth: monthKey(open.year, open.month), balance },
+  });
 }
 
 /** Money paid back outside payroll. Completes the loan when nothing is left. */
@@ -243,11 +280,11 @@ export async function loanDeductionsFor(employeeIds: string[], year: number, mon
   if (employeeIds.length === 0) return map;
   const loans = await db.loan.findMany({
     where: { employeeId: { in: employeeIds }, status: "APPROVED" },
-    include: { repayments: true, pauses: true },
+    include: { repayments: true, monthOverrides: true },
     orderBy: { createdAt: "asc" },
   });
   for (const l of loans) {
-    const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), l.pauses, year, month);
+    const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), overridesOf(l), year, month);
     if (due) (map.get(l.employeeId) ?? map.set(l.employeeId, []).get(l.employeeId)!).push(due);
   }
   return map;
@@ -258,25 +295,45 @@ export async function loanDeductionsFor(employeeIds: string[], year: number, mon
  * that reach zero. Refuses (rolling the approval back) if a loan changed since the run was calculated.
  */
 export async function recordPayrollRepayments(tx: Prisma.TransactionClient, actor: Actor, run: PayrollRun) {
-  const items = await tx.payrollItem.findMany({ where: { runId: run.id }, select: { id: true, employeeId: true, employeeCode: true, lines: true } });
+  const items = await tx.payrollItem.findMany({ where: { runId: run.id }, select: { id: true, employeeId: true, employeeCode: true, lines: true, netPay: true } });
+  const loanLines = (i: (typeof items)[number]) =>
+    (Array.isArray(i.lines) ? (i.lines as unknown as PayLine[]) : []).filter((l) => l && l.code === "LOAN" && typeof l.loanId === "string");
   const wanted = items.flatMap((i) =>
-    (Array.isArray(i.lines) ? (i.lines as unknown as PayLine[]) : [])
-      .filter((l) => l && l.code === "LOAN" && typeof l.loanId === "string" && l.amount > 0)
-      .map((l) => ({ item: i, loanId: l.loanId!, amount: Math.round(l.amount) })),
+    loanLines(i).filter((l) => l.amount > 0).map((l) => ({ item: i, loanId: l.loanId!, amount: Math.round(l.amount), planned: l.planned })),
   );
-  if (wanted.length === 0) return;
-
-  const loans = new Map((await tx.loan.findMany({ where: { id: { in: wanted.map((w) => w.loanId) } }, include: { repayments: true, pauses: true } })).map((l) => [l.id, l]));
+  const employeeIds = items.map((i) => i.employeeId).filter((v): v is string => !!v);
+  const runLoans = await tx.loan.findMany({
+    where: { OR: [{ id: { in: wanted.map((w) => w.loanId) } }, { employeeId: { in: employeeIds }, status: "APPROVED" }] },
+    include: { repayments: true, monthOverrides: true },
+  });
+  const loans = new Map(runLoans.map((l) => [l.id, l]));
   const paidOn = todayInPKT();
   const stale = (code: string, why: string) =>
     new AppError(`${code}: ${why} since this payroll was calculated. Send it back to HR to recalculate, then approve again.`);
+  const dueNow = (l: LoanWithHistory) => loanDueFor(l.id, termsOf(l), repaymentsOf(l), overridesOf(l), run.year, run.month);
+
+  // An installment that became due after calculation (loan approved, skipped month given an amount) is missing from
+  // the run. With net pay at 0 the line may have been capped away, so it is only flagged when there was room.
+  for (const i of items) {
+    if (!i.employeeId || Number(i.netPay) <= 0) continue;
+    const inRun = new Set(loanLines(i).map((l) => l.loanId));
+    for (const l of runLoans) {
+      if (l.employeeId !== i.employeeId || l.status !== "APPROVED" || inRun.has(l.id)) continue;
+      if (l.repayments.some((r) => r.payrollItemId === i.id)) continue;
+      if (dueNow(l)) throw stale(i.employeeCode, "a loan installment became due");
+    }
+  }
 
   for (const w of wanted) {
     const loan = loans.get(w.loanId);
     if (!loan || loan.employeeId !== w.item.employeeId) throw stale(w.item.employeeCode, "a loan was removed");
     if (loan.repayments.some((r) => r.payrollItemId === w.item.id)) continue;
     if (loan.status !== "APPROVED") throw stale(w.item.employeeCode, `a loan became ${loan.status.toLowerCase()}`);
-    if (loan.pauses.some((p) => p.year === run.year && p.month === run.month)) throw stale(w.item.employeeCode, "a loan installment was paused");
+    const due = dueNow(loan);
+    if (!due) throw stale(w.item.employeeCode, "a loan installment was skipped");
+    // `planned` is the installment before the net-pay cap; lines calculated before it was stored get the checks below.
+    if (w.planned !== undefined && Math.round(w.planned) !== due.amount) throw stale(w.item.employeeCode, "a loan installment was changed");
+    if (w.amount > due.amount) throw stale(w.item.employeeCode, "a loan installment was lowered");
     const balance = balanceOf(loan);
     if (w.amount > balance) throw stale(w.item.employeeCode, "a loan balance went down");
 
@@ -304,21 +361,21 @@ export async function recordPayrollRepayments(tx: Prisma.TransactionClient, acto
 const listInclude = {
   employee: { select: { id: true, fullName: true, employeeCode: true, department: { select: { name: true } } } },
   repayments: true,
-  pauses: true,
+  monthOverrides: true,
 } satisfies Prisma.LoanInclude;
 
 type ListedLoan = Prisma.LoanGetPayload<{ include: typeof listInclude }>;
 
 function summarise(l: ListedLoan, open: { year: number; month: number }) {
   const outstanding = balanceOf(l);
-  const plan = installmentPlan(Number(l.amount), l.installments);
+  const plan = planFor(termsOf(l));
   // What the next open payroll would deduct (before the net-pay cap); later if the loan starts later.
   const at = Math.max(monthIndex(open.year, open.month), monthIndex(l.startYear, l.startMonth));
   let next: { year: number; month: number; amount: number } | null = null;
   if (l.status === "APPROVED") {
     for (let i = at; i < at + 24 && !next; i++) {
       const { year, month } = fromMonthIndex(i);
-      const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), l.pauses, year, month);
+      const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), overridesOf(l), year, month);
       if (due) next = { year, month, amount: due.amount };
     }
   }
@@ -329,6 +386,8 @@ function summarise(l: ListedLoan, open: { year: number; month: number }) {
     installments: l.installments,
     installmentAmount: plan.regular,
     lastInstallment: plan.last,
+    /** HR changed the regular installment from the even split */
+    installmentChanged: plan.regular !== installmentPlan(Number(l.amount), l.installments).regular,
     startYear: l.startYear,
     startMonth: l.startMonth,
     startLabel: loanMonthLabel(l.startYear, l.startMonth),
@@ -409,7 +468,7 @@ export async function getLoan(actor: Actor, id: string) {
     cancelledBy: name(loan.cancelledById),
     cancelledAt: loan.cancelledAt,
     firstOpenMonth: monthKey(open.year, open.month),
-    schedule: buildSchedule(termsOf(loan), repaymentsOf(loan), loan.pauses, closed).map((r) => ({ ...r, label: loanMonthLabel(r.year, r.month) })),
+    schedule: buildSchedule(termsOf(loan), repaymentsOf(loan), overridesOf(loan), closed).map((r) => ({ ...r, label: loanMonthLabel(r.year, r.month) })),
     repayments: loan.repayments.map((r) => ({
       id: r.id, amount: Number(r.amount), source: r.source, paidOn: r.paidOn, monthLabel: loanMonthLabel(r.year, r.month), note: r.note, by: name(r.createdById),
     })),

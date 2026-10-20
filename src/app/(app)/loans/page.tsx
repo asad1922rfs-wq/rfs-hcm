@@ -47,8 +47,8 @@ function LoansTable({ rows, showEmployee, actions }: { rows: LoanRow[]; showEmpl
                 <span className="block text-xs text-muted-foreground">{formatDate(r.createdAt)}</span>
               </TableCell>
               <TableCell className="hidden sm:table-cell">
-                {r.installments} × <PrivateAmount value={formatPKR(r.installmentAmount)} />
-                {r.lastInstallment !== r.installmentAmount && <span className="block text-xs text-muted-foreground">last <PrivateAmount value={formatPKR(r.lastInstallment)} /></span>}
+                {r.installmentChanged ? <><PrivateAmount value={formatPKR(r.installmentAmount)} /> / month</> : <>{r.installments} × <PrivateAmount value={formatPKR(r.installmentAmount)} /></>}
+                {!r.installmentChanged && r.lastInstallment !== r.installmentAmount && <span className="block text-xs text-muted-foreground">last <PrivateAmount value={formatPKR(r.lastInstallment)} /></span>}
               </TableCell>
               <TableCell className="hidden whitespace-nowrap md:table-cell">{r.startLabel}</TableCell>
               <TableCell className="text-right"><PrivateAmount value={formatPKR(r.outstanding)} /></TableCell>
@@ -78,7 +78,6 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const canManage = can(actor, "loan.manage", "all");
   const canSeeOthers = can(actor, "loan.read", "team");
-  const canRequest = !!actor.employeeId && can(actor, "loan.request", "self");
   const hasOwn = !!actor.employeeId;
 
   const views: { key: "mine" | LoanView; label: string }[] = [
@@ -124,12 +123,11 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
     <PrivacyGroup>
       <PageHeader
         title="Loans"
-        description="Interest-free salary advances, repaid by fixed monthly installments deducted in payroll. Repayments are recorded when the month's payroll is approved."
+        description="Interest-free salary advances, repaid by monthly installments deducted in payroll (HR/Finance can change a month's installment). Repayments are recorded when the month's payroll is approved."
         actions={
           <>
             <PrivacyToggle className="h-9" />
             {employees && <LoanFormDialog employees={employees} minMonth={minMonth} defaultMonth={defaultMonth} trigger="Add loan" />}
-            {canRequest && <LoanFormDialog minMonth={minMonth} defaultMonth={defaultMonth} trigger="Request a loan" />}
           </>
         }
       />
@@ -149,10 +147,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             </section>
           )}
           {mine.length === 0 ? (
-            <EmptyState
-              title="No loans"
-              description={canRequest ? "Need a salary advance? Request a loan — it is repaid in monthly installments from your salary." : undefined}
-            />
+            <EmptyState title="No loans" description="Salary advances are added by HR/Finance and repaid in monthly installments from your salary." />
           ) : (
             <LoansTable rows={mine} />
           )}

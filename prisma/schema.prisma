@@ -602,7 +602,7 @@ model Loan {
   /// Whole rupees
   amount            Decimal         @db.Decimal(14, 2)
   installments      Int
-  /// Regular monthly installment (amount ÷ installments, rounded); the last one takes the remainder
+  /// Regular monthly installment (amount ÷ installments, rounded; HR may change it); the last one takes the remainder
   installmentAmount Decimal         @db.Decimal(14, 2)
   /// First payroll month the installment is deducted in
   startYear         Int
@@ -617,7 +617,7 @@ model Loan {
   cancelledAt       DateTime?
   cancelNote        String?         @db.VarChar(1000)
   repayments        LoanRepayment[]
-  pauses            LoanPause[]
+  monthOverrides    LoanMonthOverride[]
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -645,13 +645,16 @@ model LoanRepayment {
   @@unique([loanId, payrollItemId])
 }
 
-/// A month in which no installment is deducted for the loan; the schedule moves on by a month.
-model LoanPause {
+/// HR's change to one month of a loan: amount null or 0 skips the month (the schedule moves on by a month); more
+/// than 0 is deducted instead of the regular installment (never more than the balance).
+model LoanMonthOverride {
   id          String   @id @default(cuid())
   loanId      String
   loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
   year        Int
   month       Int
+  /// Whole rupees; null or 0 = skip
+  amount      Decimal? @db.Decimal(14, 2)
   createdById String?
   createdAt   DateTime @default(now())
 

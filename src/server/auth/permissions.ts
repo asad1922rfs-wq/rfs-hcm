@@ -30,9 +30,8 @@ export const PERMISSIONS = {
   "payroll.approve": { group: "Payroll", label: "Approve and lock payroll", scopes: ["all"] },
   "payslip.read": { group: "Payroll", label: "View and download payslips", scopes: ["self", "all"] },
   "payslip.manage": { group: "Payroll", label: "Generate payslips", scopes: ["all"] },
-  "loan.request": { group: "Loans", label: "Request a loan (salary advance)", scopes: ["self"] },
   "loan.read": { group: "Loans", label: "View loans and repayments", scopes: SCOPES },
-  "loan.manage": { group: "Loans", label: "Approve, create, pause, record repayments and cancel loans", scopes: ["all"] },
+  "loan.manage": { group: "Loans", label: "Add, approve, adjust installments, record repayments and cancel loans", scopes: ["all"] },
   "document.read": { group: "Documents", label: "View and download employee documents", scopes: SCOPES },
   "document.manage": { group: "Documents", label: "Upload and delete employee documents", scopes: ["all"] },
   "report.read": { group: "Reports", label: "View and export reports", scopes: ["team", "department", "all"] },
@@ -90,7 +89,7 @@ export const SYSTEM_ROLES = {
       "profile.update:self", "attendance.read:all", "attendance.manage:all", "attendance.approve:all",
       "leave.read:all", "leave.request:self", "leave.approve:all", "payroll.read:all", "payroll.prepare:all",
       "payslip.read:all", "payslip.manage:all", "report.read:all", "settings.organisation:all",
-      "user.manage:all", "audit.read:all", "bank.read:self", "loan.request:self", "loan.read:all", "loan.manage:all",
+      "user.manage:all", "audit.read:all", "bank.read:self", "loan.read:all", "loan.manage:all",
       "document.read:all", "document.manage:all",
     ],
   },
@@ -100,7 +99,7 @@ export const SYSTEM_ROLES = {
     permissions: [
       "employee.read:all", "salary.read:all", "bank.read:all", "attendance.read:all",
       "leave.read:self", "leave.request:self", "payroll.read:all", "payroll.approve:all", "payslip.read:all", "report.read:all",
-      "loan.request:self", "loan.read:all", "loan.manage:all", "document.read:self",
+      "loan.read:all", "loan.manage:all", "document.read:self",
     ],
   },
   MANAGER: {
@@ -109,7 +108,7 @@ export const SYSTEM_ROLES = {
     permissions: [
       "employee.read:team", "salary.read:self", "bank.read:self",
       "attendance.read:team", "attendance.approve:team", "leave.read:team", "leave.request:self",
-      "leave.approve:team", "payslip.read:self", "report.read:team", "loan.request:self", "loan.read:team",
+      "leave.approve:team", "payslip.read:self", "report.read:team", "loan.read:team",
       "document.read:self",
     ],
   },
@@ -118,7 +117,7 @@ export const SYSTEM_ROLES = {
     description: "Personal dashboard, own attendance, salary, payslips and leave requests",
     permissions: [
       "employee.read:self", "salary.read:self", "bank.read:self",
-      "attendance.read:self", "leave.read:self", "leave.request:self", "payslip.read:self", "loan.request:self", "loan.read:self",
+      "attendance.read:self", "leave.read:self", "leave.request:self", "payslip.read:self", "loan.read:self",
       "document.read:self",
     ],
   },

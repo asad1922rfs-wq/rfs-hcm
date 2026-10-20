@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  cancelLoan, createLoan, decideLoan, pauseMonth, recordCashRepayment, requestLoan, unpauseMonth,
+  cancelLoan, changeRegularInstallment, createLoan, decideLoan, recordCashRepayment, resetMonthInstallment, setMonthInstallment,
 } from "@/server/services/loans";
 import { MAX_INSTALLMENTS, MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
 import { optionalText, requiredText } from "@/lib/validation";
@@ -39,14 +39,6 @@ const loanSchema = z.object({
 
 const toInput = (v: z.infer<typeof loanSchema>) => ({ amount: v.amount, installments: v.installments, startYear: v.start.year, startMonth: v.start.month, reason: v.reason });
 
-export async function requestLoanAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  return runAction(async () => {
-    const loan = await requestLoan(await requireActor(), toInput(loanSchema.parse(formObject(fd))));
-    refresh(loan.id);
-    return { ok: true, message: "Loan requested. HR/Finance will review it." };
-  });
-}
-
 export async function createLoanAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   return runAction(async () => {
     const input = loanSchema.extend({ employeeId: requiredText("Employee", 40) }).parse(formObject(fd));
@@ -73,15 +65,38 @@ export async function cancelLoanAction(id: string, note: string): Promise<Action
   });
 }
 
-export async function pauseMonthAction(id: string, month: string, pause: boolean): Promise<ActionResult> {
+const installmentAmount = (allowZero: boolean) =>
+  z.coerce
+    .number({ error: "Enter an amount." })
+    .int("Whole rupees only.")
+    .min(allowZero ? 0 : 1, allowZero ? "The amount cannot be negative." : "The installment must be at least Rs 1.")
+    .max(MAX_LOAN_AMOUNT);
+
+/** Custom installment for one month (0 skips it), or `null` to go back to the regular installment. */
+export async function monthInstallmentAction(id: string, month: string, amount: string | null): Promise<ActionResult> {
   return runAction(async () => {
     const m = monthField("month").parse(month);
     const actor = await requireActor();
-    if (pause) await pauseMonth(actor, id, m.year, m.month);
-    else await unpauseMonth(actor, id, m.year, m.month);
+    if (amount === null) await resetMonthInstallment(actor, id, m.year, m.month);
+    else {
+      const value = installmentAmount(true).parse(amount);
+      await setMonthInstallment(actor, id, m.year, m.month, value);
+    }
     refresh(id);
     revalidatePath("/payroll");
-    return { ok: true, message: pause ? "No installment will be deducted that month." : "The installment is back on for that month." };
+    return {
+      ok: true,
+      message: amount === null ? "Back to the regular installment for that month." : Number(amount) === 0 ? "No installment will be deducted that month." : "Installment changed for that month.",
+    };
+  });
+}
+
+export async function changeInstallmentAction(id: string, amount: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await changeRegularInstallment(await requireActor(), id, installmentAmount(false).parse(amount));
+    refresh(id);
+    revalidatePath("/payroll");
+    return { ok: true, message: "Monthly installment changed from the next open payroll month." };
   });
 }
 

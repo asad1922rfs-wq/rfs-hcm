@@ -16,8 +16,11 @@ import { capLoanDeductions, loanLineLabel, type LoanDue } from "@/core/loans/sch
 
 export type AttendanceStatusCode = "PRESENT" | "LATE" | "EARLY" | "HALF_DAY" | "SHORT_DAY" | "ABSENT" | "LEAVE" | "MISSING";
 
-/** `loanId` is set on LOAN lines so approving the run can record each loan's repayment. */
-export type PayLine = { kind: "EARNING" | "DEDUCTION"; code: string; label: string; amount: number; loanId?: string };
+/**
+ * `loanId` is set on LOAN lines so approving the run can record each loan's repayment; `planned` is the installment
+ * that was due before the net-pay cap, so approval can tell when the loan's month was changed after calculation.
+ */
+export type PayLine = { kind: "EARNING" | "DEDUCTION"; code: string; label: string; amount: number; loanId?: string; planned?: number };
 
 export type PayInput = {
   year: number;
@@ -161,7 +164,7 @@ export function calculatePay(input: PayInput): PayResult {
   const sum = (kind: PayLine["kind"]) => lines.filter((l) => l.kind === kind).reduce((s, l) => s + l.amount, 0);
   if (input.loans?.length) {
     const { deductions: loanLines, shortfall } = capLoanDeductions(input.loans, sum("EARNING") - sum("DEDUCTION"));
-    for (const l of loanLines) lines.push({ kind: "DEDUCTION", code: "LOAN", label: loanLineLabel(l), amount: l.amount, loanId: l.loanId });
+    for (const l of loanLines) lines.push({ kind: "DEDUCTION", code: "LOAN", label: loanLineLabel(l), amount: l.amount, loanId: l.loanId, planned: l.requested });
     if (shortfall > 0) warnings.push(`Loan installments reduced by ${shortfall} so net pay is not negative — the balance stays outstanding`);
   }
 
