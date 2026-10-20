@@ -1,8 +1,9 @@
 // Loan (salary advance) deductions. Pure: no I/O, deterministic.
 //
 // Confirmed RFS rules:
-//   * Interest-free. There is no fixed monthly plan: each payroll month deducts ONLY the installment HR entered for
-//     that month (a month entry with an amount above 0). No entry, or 0, deducts nothing.
+//   * Interest-free. Each payroll month deducts the installment HR entered for that month; an entry of 0 skips the
+//     month. A month without an entry repeats the latest earlier entry above 0 (earlier skips do not reset it); with
+//     no earlier entry nothing is deducted.
 //   * An entry never deducts more than the outstanding balance. A cash repayment lowers the balance.
 //   * Loan deductions never make net pay negative: what does not fit stays outstanding.
 //   * The balance counts RECORDED repayments only. Payroll repayments are recorded when the run is approved, so
@@ -13,7 +14,7 @@ export type LoanStatusCode = "PENDING" | "APPROVED" | "REJECTED" | "COMPLETED" |
 export type LoanTerms = { amount: number; status: LoanStatusCode };
 
 export type RepaymentRecord = { amount: number; source: "PAYROLL" | "CASH"; year: number; month: number };
-/** The installment HR entered for one month: more than 0 is deducted, 0 or null deducts nothing. */
+/** The installment HR entered for one month: more than 0 is deducted, 0 skips the month, null counts as no entry. */
 export type MonthOverride = { year: number; month: number; amount: number | null };
 
 /** One loan's deduction for a payroll month, before the net-pay cap. */
@@ -30,15 +31,34 @@ export function outstandingBalance(amount: number, repayments: readonly Pick<Rep
   return Math.max(0, Math.round(amount) - repayments.reduce((s, r) => s + Math.round(r.amount), 0));
 }
 
-/** The amount HR entered for a month (0 when there is no entry). */
-export function enteredFor(overrides: readonly MonthOverride[], year: number, month: number): number {
+/** The amount HR entered for a month (0 = skip), or null when the month has no entry. */
+export function enteredFor(overrides: readonly MonthOverride[], year: number, month: number): number | null {
   const o = overrides.find((x) => x.year === year && x.month === month);
-  return o ? Math.max(0, Math.round(o.amount ?? 0)) : 0;
+  return o && o.amount !== null ? Math.max(0, Math.round(o.amount)) : null;
+}
+
+export type EffectiveAmount = { amount: number; entered: number | null; repeatsFrom: { year: number; month: number } | null };
+
+/**
+ * What a month asks to deduct before any cap: its own entry (0 = skip); otherwise the latest earlier entry above 0
+ * (an earlier skip does not reset it); otherwise 0.
+ */
+export function effectiveFor(overrides: readonly MonthOverride[], year: number, month: number): EffectiveAmount {
+  const entered = enteredFor(overrides, year, month);
+  if (entered !== null) return { amount: entered, entered, repeatsFrom: null };
+  const target = monthIndex(year, month);
+  let best: { year: number; month: number; amount: number } | null = null;
+  for (const o of overrides) {
+    if (o.amount === null || Math.round(o.amount) <= 0) continue;
+    const i = monthIndex(o.year, o.month);
+    if (i < target && (!best || i > monthIndex(best.year, best.month))) best = { year: o.year, month: o.month, amount: Math.round(o.amount) };
+  }
+  return best ? { amount: best.amount, entered: null, repeatsFrom: { year: best.year, month: best.month } } : { amount: 0, entered: null, repeatsFrom: null };
 }
 
 /**
- * The installment a loan deducts in a payroll month, or null when nothing is due: the loan is not approved, HR
- * entered nothing (or 0) for the month, or it is fully repaid. Capped at the outstanding balance.
+ * The installment a loan deducts in a payroll month, or null when nothing is due: the loan is not approved, the
+ * effective amount (see effectiveFor) is 0, or it is fully repaid. Capped at the outstanding balance.
  * A payroll repayment already recorded for this very month (an approved run) is ignored, so the answer is stable.
  */
 export function loanDueFor(
@@ -50,7 +70,7 @@ export function loanDueFor(
   month: number,
 ): LoanDue | null {
   if (loan.status !== "APPROVED") return null;
-  const entered = enteredFor(overrides, year, month);
+  const entered = effectiveFor(overrides, year, month).amount;
   if (entered <= 0) return null;
   const target = monthIndex(year, month);
   const counted = repayments.filter((r) => !(r.source === "PAYROLL" && monthIndex(r.year, r.month) === target));
@@ -87,8 +107,12 @@ export type LoanMonthRow = {
   key: string;
   /** Payroll month that can still be changed (open payroll, not already deducted) */
   open: boolean;
-  /** Installment HR entered for the month (0 = none) */
-  entered: number;
+  /** Installment HR entered for the month (0 = skip, null = no entry) */
+  entered: number | null;
+  /** What an open month would deduct (before the net-pay cap): its entry or the repeated amount, capped at the projected balance */
+  effective: number;
+  /** For an open month without an entry that repeats an earlier one: that month's key */
+  repeatsFrom: string | null;
   /** Deducted through payroll in this month */
   payroll: number;
   /** Cash repaid in this month */
@@ -113,7 +137,7 @@ export function buildMonthList(
     let r = months.get(i);
     if (!r) {
       const { year, month } = fromMonthIndex(i);
-      r = { year, month, key: monthKey(year, month), open: false, entered: 0, payroll: 0, cash: 0 };
+      r = { year, month, key: monthKey(year, month), open: false, entered: null, effective: 0, repeatsFrom: null, payroll: 0, cash: 0 };
       months.set(i, r);
     }
     return r;
@@ -132,5 +156,15 @@ export function buildMonthList(
   }
   if (running) for (let i = open; i <= open + ahead; i++) row(i);
   for (const [i, r] of months) r.open = running && i >= open && r.payroll === 0;
-  return [...months.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r);
+  const sorted = [...months.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r);
+  // Project the open months in order: each takes its effective amount out of what is left.
+  let left = outstandingBalance(loan.amount, repayments);
+  for (const r of sorted) {
+    if (!r.open) continue;
+    const e = effectiveFor(overrides, r.year, r.month);
+    r.repeatsFrom = e.repeatsFrom ? monthKey(e.repeatsFrom.year, e.repeatsFrom.month) : null;
+    r.effective = Math.min(e.amount, left);
+    left -= r.effective;
+  }
+  return sorted;
 }

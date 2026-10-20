@@ -29,9 +29,52 @@ describe("loanDueFor (manual installments)", () => {
     expect(due([], 2026, 10, [set(2026, 10, 12_000)])).toEqual({ loanId: "L1", amount: 12_000 });
   });
 
-  it("a cleared entry (0 or null) deducts nothing", () => {
+  it("an explicit 0 skips the month; a null amount counts as no entry", () => {
     expect(due([], 2026, 10, [set(2026, 10, 0)])).toBeNull();
     expect(due([], 2026, 10, [set(2026, 10, null)])).toBeNull();
+    expect(due([], 2026, 11, [set(2026, 10, 7_000), set(2026, 11, 0)])).toBeNull();
+    expect(due([], 2026, 11, [set(2026, 10, 7_000), set(2026, 11, null)])).toMatchObject({ amount: 7_000 });
+  });
+
+  it("a month without an entry repeats the latest earlier entry above 0", () => {
+    const o = [set(2026, 8, 3_000), set(2026, 10, 10_000)];
+    expect(due([], 2026, 9, o)).toMatchObject({ amount: 3_000 });
+    expect(due([], 2026, 11, o)).toMatchObject({ amount: 10_000 });
+    expect(due([], 2027, 6, o)).toMatchObject({ amount: 10_000 });
+  });
+
+  it("a skip does not reset the repeat amount", () => {
+    const o = [set(2026, 10, 10_000), set(2026, 11, 0)];
+    expect(due([], 2026, 11, o)).toBeNull();
+    expect(due([], 2026, 12, o)).toMatchObject({ amount: 10_000 });
+  });
+
+  it("with no entry ever, nothing is deducted", () => {
+    expect(due([], 2026, 10, [])).toBeNull();
+    expect(due([], 2026, 12, [set(2026, 11, 0)])).toBeNull();
+  });
+
+  it("clearing an entry falls back to repeating the earlier amount", () => {
+    const withEntry = [set(2026, 10, 10_000), set(2026, 11, 4_000)];
+    expect(due([], 2026, 11, withEntry)).toMatchObject({ amount: 4_000 });
+    const cleared = withEntry.filter((o) => o.month !== 11);
+    expect(due([], 2026, 11, cleared)).toMatchObject({ amount: 10_000 });
+  });
+
+  it("a repeated amount is capped at the balance: final partial month, then the loan completes", () => {
+    const o = [set(2026, 10, 40_000)];
+    const paid: RepaymentRecord[] = [];
+    const amounts: number[] = [];
+    for (let m = 10; m <= 13; m++) {
+      const y = 2026 + Math.floor((m - 1) / 12), mm = ((m - 1) % 12) + 1;
+      const d = due(paid, y, mm, o);
+      if (!d) break;
+      amounts.push(d.amount);
+      paid.push(payroll(y, mm, d.amount));
+    }
+    expect(amounts).toEqual([40_000, 40_000, 20_000]);
+    expect(outstandingBalance(loan.amount, paid)).toBe(0);
+    expect(due(paid, 2027, 1, o)).toBeNull();
   });
 
   it("caps the entry at the outstanding balance", () => {
@@ -98,6 +141,16 @@ describe("buildMonthList", () => {
     const rows = buildMonthList(loan, [], [set(2026, 12, 8_000), set(2027, 9, 3_000)], open);
     expect(rows.find((r) => r.key === "2026-12")).toMatchObject({ entered: 8_000, open: true });
     expect(rows.at(-1)).toMatchObject({ key: "2027-09", entered: 3_000, open: true });
+  });
+
+  it("shows the repeated default, skips and the projected final partial month", () => {
+    const rows = buildMonthList(loan, [], [set(2026, 10, 30_000), set(2026, 12, 0)], open);
+    const by = (k: string) => rows.find((r) => r.key === k);
+    expect(by("2026-11")).toMatchObject({ entered: null, effective: 30_000, repeatsFrom: "2026-10" });
+    expect(by("2026-12")).toMatchObject({ entered: 0, effective: 0, repeatsFrom: null });
+    expect(by("2027-01")).toMatchObject({ effective: 30_000, repeatsFrom: "2026-10" });
+    expect(by("2027-03")).toMatchObject({ effective: 10_000 });
+    expect(by("2027-04")).toMatchObject({ effective: 0 });
   });
 
   it("skips old entries for closed months that deducted nothing", () => {

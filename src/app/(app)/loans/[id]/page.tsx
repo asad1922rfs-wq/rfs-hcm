@@ -57,7 +57,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
         <StatCard
           label="Next deduction"
           value={loan.next ? <PrivateAmount value={formatPKR(loan.next.amount)} /> : "—"}
-          hint={loan.next ? `${loanMonthLabel(loan.next.year, loan.next.month)} payroll · capped so net pay stays above zero` : running ? "No installment entered" : undefined}
+          hint={loan.next ? `${loanMonthLabel(loan.next.year, loan.next.month)} payroll · capped so net pay stays above zero` : running ? "Nothing to deduct — no amount entered" : undefined}
           icon={Hourglass}
           tone="info"
         />
@@ -85,13 +85,16 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
                     <TableCell className="text-right">{r.payroll ? <PrivateAmount value={formatPKR(r.payroll)} /> : "—"}</TableCell>
                     <TableCell className="text-right">{r.cash ? <PrivateAmount value={formatPKR(r.cash)} /> : "—"}</TableCell>
                     <TableCell className="text-right">
-                      {manageSchedule && r.open ? (
-                        <MonthInstallmentField id={loan.id} month={r.key} label={r.label} amount={r.entered} max={loan.outstanding} />
-                      ) : r.entered ? (
-                        <PrivateAmount value={formatPKR(r.entered)} />
-                      ) : (
-                        "—"
-                      )}
+                      <div className="flex flex-col items-end gap-1">
+                        {r.open && <InstallmentText r={r} />}
+                        {manageSchedule && r.open ? (
+                          <MonthInstallmentField id={loan.id} month={r.key} label={r.label} entered={r.entered} placeholder={r.effective ? String(r.effective) : "0"} max={loan.outstanding} />
+                        ) : !r.open && r.entered ? (
+                          <PrivateAmount value={formatPKR(r.entered)} />
+                        ) : !r.open ? (
+                          "—"
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -99,7 +102,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
             </Table>
           )}
           <p className="border-t px-4 py-3 text-xs text-muted-foreground">
-            Only the installment entered for a month is deducted from that month&apos;s payroll; a month without one deducts nothing. It is never more than the balance, and if net pay is too low the shortfall stays outstanding. Payroll deductions are recorded when the month&apos;s payroll is approved.
+            The installment entered for a month is deducted from that month&apos;s payroll. Not entered = repeats the last amount; enter 0 to skip a month. It is never more than the balance, and if net pay is too low the shortfall stays outstanding. Payroll deductions are recorded when the month&apos;s payroll is approved.
           </p>
         </Card>
 
@@ -145,4 +148,20 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
       </div>
     </PrivacyGroup>
   );
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** What an open month will deduct: an entry, a skip, or the repeated default (muted). */
+function InstallmentText({ r }: { r: { entered: number | null; effective: number; repeatsFrom: string | null } }) {
+  if (r.entered === 0) return <span className="text-muted-foreground">Skipped</span>;
+  if (r.entered !== null) return <PrivateAmount value={formatPKR(r.effective)} />;
+  if (r.effective > 0 && r.repeatsFrom) {
+    return (
+      <span className="text-muted-foreground">
+        <PrivateAmount value={formatPKR(r.effective)} /> (repeats {MONTH_SHORT[Number(r.repeatsFrom.slice(5, 7)) - 1]})
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">—</span>;
 }

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  cancelLoan, createLoan, decideLoan, recordCashRepayment, setMonthInstallment,
+  cancelLoan, clearMonthInstallment, createLoan, decideLoan, recordCashRepayment, setMonthInstallment,
 } from "@/server/services/loans";
 import { MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
 import { optionalText, requiredText } from "@/lib/validation";
@@ -72,15 +72,27 @@ export async function cancelLoanAction(id: string, note: string): Promise<Action
 
 const installmentAmount = z.coerce.number({ error: "Enter an amount." }).int("Whole rupees only.").min(0, "The amount cannot be negative.").max(MAX_LOAN_AMOUNT);
 
-/** The installment to deduct in one month; 0 or empty clears it (nothing deducted). */
+/** The installment to deduct in one month; 0 skips the month. */
 export async function monthInstallmentAction(id: string, month: string, amount: string): Promise<ActionResult> {
   return runAction(async () => {
     const m = monthField("month").parse(month);
-    const value = installmentAmount.parse(amount.trim() === "" ? "0" : amount.trim());
+    if (amount.trim() === "") return { ok: false, error: "Enter an amount, or 0 to skip the month." };
+    const value = installmentAmount.parse(amount.trim());
     await setMonthInstallment(await requireActor(), id, m.year, m.month, value);
     refresh(id);
     revalidatePath("/payroll");
-    return { ok: true, message: value === 0 ? "Nothing will be deducted that month." : "Installment saved for that month." };
+    return { ok: true, message: value === 0 ? "That month is skipped: nothing will be deducted." : "Installment saved for that month." };
+  });
+}
+
+/** Remove a month's entry so it repeats the last amount again. */
+export async function clearMonthInstallmentAction(id: string, month: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const m = monthField("month").parse(month);
+    await clearMonthInstallment(await requireActor(), id, m.year, m.month);
+    refresh(id);
+    revalidatePath("/payroll");
+    return { ok: true, message: "That month now uses the default (repeats the last amount)." };
   });
 }
 

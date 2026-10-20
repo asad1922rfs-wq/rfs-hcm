@@ -197,8 +197,8 @@ async function assertChangeableMonth(loan: LoanWithHistory, year: number, month:
 }
 
 /**
- * The installment to deduct in one payroll month (never more than the outstanding balance). 0 clears the month, so
- * nothing is deducted then.
+ * The installment to deduct in one payroll month (never more than the outstanding balance). 0 stores a skip: nothing
+ * is deducted that month. Later months without an entry keep repeating the latest entry above 0.
  */
 export async function setMonthInstallment(actor: Actor, loanId: string, year: number, month: number, amount: number) {
   assertPermission(actor, "loan.manage", "all");
@@ -207,24 +207,37 @@ export async function setMonthInstallment(actor: Actor, loanId: string, year: nu
   assertNotOwn(actor, loan);
   await assertChangeableMonth(loan, year, month);
   const balance = balanceOf(loan);
-  if (!Number.isInteger(amount) || amount < 0) throw new AppError("Enter a whole-rupee amount (0 or empty clears the month).");
+  if (!Number.isInteger(amount) || amount < 0) throw new AppError("Enter a whole-rupee amount (0 skips the month).");
   if (amount > balance) throw new AppError(`The outstanding balance is only Rs ${balance.toLocaleString("en-PK")}.`);
 
   const existing = loan.monthOverrides.find((o) => o.year === year && o.month === month);
-  const before = existing ? Math.max(0, Math.round(Number(existing.amount ?? 0))) : 0;
+  const before = existing && existing.amount !== null ? Math.max(0, Math.round(Number(existing.amount))) : null;
   if (before === amount) return;
-  if (amount === 0) {
-    if (existing) await db.loanMonthOverride.delete({ where: { id: existing.id } });
-  } else {
-    await db.loanMonthOverride.upsert({
-      where: { loanId_year_month: { loanId, year, month } },
-      create: { loanId, year, month, amount: new Prisma.Decimal(amount), createdById: actor.userId },
-      update: { amount: new Prisma.Decimal(amount), createdById: actor.userId },
-    });
-  }
+  await db.loanMonthOverride.upsert({
+    where: { loanId_year_month: { loanId, year, month } },
+    create: { loanId, year, month, amount: new Prisma.Decimal(amount), createdById: actor.userId },
+    update: { amount: new Prisma.Decimal(amount), createdById: actor.userId },
+  });
   await recordAudit({
-    actor, action: amount === 0 ? "loan.month_installment_clear" : "loan.month_installment", entityType: "Loan", entityId: loanId,
+    actor, action: amount === 0 ? "loan.month_installment_skip" : "loan.month_installment", entityType: "Loan", entityId: loanId,
     before: { month: monthKey(year, month), amount: before }, after: { month: monthKey(year, month), amount },
+  });
+}
+
+/** Remove a month's entry, so it falls back to the default (repeating the latest earlier entry above 0). */
+export async function clearMonthInstallment(actor: Actor, loanId: string, year: number, month: number) {
+  assertPermission(actor, "loan.manage", "all");
+  const loan = await loadLoan(loanId);
+  assertRunning(loan);
+  assertNotOwn(actor, loan);
+  await assertChangeableMonth(loan, year, month);
+  const existing = loan.monthOverrides.find((o) => o.year === year && o.month === month);
+  if (!existing) return;
+  await db.loanMonthOverride.delete({ where: { id: existing.id } });
+  await recordAudit({
+    actor, action: "loan.month_installment_clear", entityType: "Loan", entityId: loanId,
+    before: { month: monthKey(year, month), amount: existing.amount === null ? null : Number(existing.amount) },
+    after: { month: monthKey(year, month), amount: null },
   });
 }
 
@@ -257,7 +270,7 @@ export async function recordCashRepayment(actor: Actor, loanId: string, input: {
 
 // ───────────── Payroll ─────────────
 
-/** Installments HR entered, per employee for a payroll month (oldest loan first), before the net-pay cap. */
+/** Installments due (entered or repeated), per employee for a payroll month (oldest loan first), before the net-pay cap. */
 export async function loanDeductionsFor(employeeIds: string[], year: number, month: number): Promise<Map<string, LoanDue[]>> {
   const map = new Map<string, LoanDue[]>();
   if (employeeIds.length === 0) return map;
@@ -295,7 +308,7 @@ export async function recordPayrollRepayments(tx: Prisma.TransactionClient, acto
     new AppError(`${code}: ${why} since this payroll was calculated. Send it back to HR to recalculate, then approve again.`);
   const dueNow = (l: LoanWithHistory) => loanDueFor(l.id, termsOf(l), repaymentsOf(l), overridesOf(l), run.year, run.month);
 
-  // An installment that was entered after calculation is missing from
+  // An installment that was entered (or became due by repeating) after calculation is missing from
   // the run. With net pay at 0 the line may have been capped away, so it is only flagged when there was room.
   for (const i of items) {
     if (!i.employeeId || Number(i.netPay) <= 0) continue;
@@ -351,16 +364,17 @@ type ListedLoan = Prisma.LoanGetPayload<{ include: typeof listInclude }>;
 
 function summarise(l: ListedLoan, open: { year: number; month: number }) {
   const outstanding = balanceOf(l);
-  // The first open payroll month (or later) HR entered an installment for, before the net-pay cap.
+  // The first open payroll month (or later) that deducts something (entered or repeated), before the net-pay cap.
   let next: { year: number; month: number; amount: number } | null = null;
   if (l.status === "APPROVED") {
     const from = monthIndex(open.year, open.month);
     const overrides = overridesOf(l);
-    const months = overrides.filter((o) => monthIndex(o.year, o.month) >= from).sort((a, b) => monthIndex(a.year, a.month) - monthIndex(b.year, b.month));
-    for (const o of months) {
-      const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), overrides, o.year, o.month);
+    const last = Math.max(from, ...overrides.map((o) => monthIndex(o.year, o.month) + 1));
+    for (let i = from; i <= last; i++) {
+      const { year, month } = fromMonthIndex(i);
+      const due = loanDueFor(l.id, termsOf(l), repaymentsOf(l), overrides, year, month);
       if (due) {
-        next = { year: o.year, month: o.month, amount: due.amount };
+        next = { year, month, amount: due.amount };
         break;
       }
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import { Ban, Check, Loader2, Plus, Save, Wallet, X } from "lucide-react";
+import { Ban, Check, Loader2, Plus, RotateCcw, Save, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormMessage, NativeSelect, SubmitButton } from "@/components/form";
 import { formatPKR } from "@/lib/format";
-import { cancelLoanAction, cashRepaymentAction, createLoanAction, decideLoanAction, monthInstallmentAction } from "./actions";
+import { cancelLoanAction, cashRepaymentAction, clearMonthInstallmentAction, createLoanAction, decideLoanAction, monthInstallmentAction } from "./actions";
 
 type Option = { id: string; label: string };
 
@@ -35,8 +35,8 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, today, trigg
         <DialogHeader>
           <DialogTitle>Add a loan for an employee</DialogTitle>
           <DialogDescription>
-            Interest-free. Nothing is deducted automatically: only the installment you enter for a month is deducted from
-            that month&apos;s salary. A loan added here is approved immediately.
+            Interest-free. The installment you enter for a month is deducted from that month&apos;s salary. Not entered =
+            repeats the last amount; enter 0 to skip a month. A loan added here is approved immediately.
           </DialogDescription>
         </DialogHeader>
         <form action={action} className="grid gap-4">
@@ -56,7 +56,7 @@ export function LoanFormDialog({ employees, minMonth, defaultMonth, today, trigg
             {fe?.reason && <p className="text-xs text-destructive">{fe.reason[0]}</p>}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Deduct this month (Rs)" name="deductAmount" type="number" min={1} step={1} inputMode="numeric" errors={fe?.deductAmount} hint="Optional. Leave empty to enter it later." />
+            <Field label="Deduct this month (Rs)" name="deductAmount" type="number" min={1} step={1} inputMode="numeric" errors={fe?.deductAmount} hint="Repeats every month until you change it. Leave empty to enter it later." />
             <Field label="Month" name="deductMonth" type="month" min={minMonth} defaultValue={defaultMonth} errors={fe?.deductMonth} />
           </div>
           <SubmitButton>Add loan</SubmitButton>
@@ -87,7 +87,7 @@ export function DecideLoanButtons({ id, name }: { id: string; name: string }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{mode === "approve" ? "Approve loan" : "Reject loan"} · {name}</DialogTitle>
-            <DialogDescription>{mode === "approve" ? "Afterwards, enter the installment on the loan for each month it should be deducted." : "The employee will see your note."}</DialogDescription>
+            <DialogDescription>{mode === "approve" ? "Afterwards, enter the installment on the loan. Not entered = repeats the last amount; enter 0 to skip a month." : "The employee will see your note."}</DialogDescription>
           </DialogHeader>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "approve" ? "Note (optional)" : "Reason (required)"} rows={3} maxLength={1000} />
           <Button variant={mode === "approve" ? "default" : "destructive"} disabled={pending} onClick={() => decide(mode === "approve")}>
@@ -165,15 +165,19 @@ export function CashRepaymentDialog({ id, outstanding, today }: { id: string; ou
   );
 }
 
-/** The installment for one open month: an amount field and Save; 0 or empty clears it. */
-export function MonthInstallmentField({ id, month, label, amount, max }: { id: string; month: string; label: string; amount: number; max: number }) {
-  const [value, setValue] = useState(amount ? String(amount) : "");
+/**
+ * The installment for one open month: an amount field and Save (0 = skip the month), plus "Use default" to remove
+ * the entry so the month repeats the last amount again.
+ */
+export function MonthInstallmentField({ id, month, label, entered, placeholder, max }: { id: string; month: string; label: string; entered: number | null; placeholder: string; max: number }) {
+  const shown = entered === null ? "" : String(entered);
+  const [value, setValue] = useState(shown);
   const [pending, run] = useTransition();
-  useEffect(() => setValue(amount ? String(amount) : ""), [amount]);
-  const dirty = (value.trim() === "" ? 0 : Number(value)) !== amount;
-  const save = () =>
+  useEffect(() => setValue(shown), [shown]);
+  const dirty = value.trim() !== "" && value.trim() !== shown;
+  const go = (action: () => ReturnType<typeof monthInstallmentAction>) =>
     run(async () => {
-      const r = await monthInstallmentAction(id, month, value.trim());
+      const r = await action();
       if (r.ok) toast.success(r.message);
       else toast.error(r.error);
     });
@@ -182,16 +186,24 @@ export function MonthInstallmentField({ id, month, label, amount, max }: { id: s
       className="flex items-center justify-end gap-1"
       onSubmit={(e) => {
         e.preventDefault();
-        save();
+        go(() => monthInstallmentAction(id, month, value.trim()));
       }}
     >
       <Input
-        type="number" min={0} max={max} step={1} inputMode="numeric" placeholder="0" className="h-8 w-28 text-right"
-        aria-label={`Installment for ${label} (Rs)`} value={value} onChange={(e) => setValue(e.target.value)}
+        type="number" min={0} max={max} step={1} inputMode="numeric" placeholder={placeholder} className="h-8 w-28 text-right"
+        aria-label={`Installment for ${label} (Rs, 0 skips the month)`} value={value} onChange={(e) => setValue(e.target.value)}
       />
       <Button type="submit" size="sm" variant="outline" disabled={pending || !dirty} aria-label={`Save the installment for ${label}`}>
         {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save
       </Button>
+      {entered !== null && (
+        <Button
+          type="button" size="sm" variant="ghost" disabled={pending} title="Clear the entry: the month repeats the last amount"
+          aria-label={`Use the default for ${label}`} onClick={() => go(() => clearMonthInstallmentAction(id, month))}
+        >
+          <RotateCcw className="size-3.5" /> Use default
+        </Button>
+      )}
     </form>
   );
 }
