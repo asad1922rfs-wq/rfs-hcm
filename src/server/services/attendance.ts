@@ -181,7 +181,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       employeeId: { in: employees.map((e) => e.id) },
       workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) },
     },
-    select: { employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true },
+    select: { employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true, category: true },
   });
   // Approved leave (working days only): shown as LEAVE when there are no punches that day.
   const leaveRows = await db.leaveRequest.findMany({
@@ -222,7 +222,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const rule = ruleForDate(shift, date);
       let result = computeDay(date, effective, rule, isOffDay, date === today && !adj);
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
-      if (result && adj?.excused && !isOffDay) result = excuseAdjusted(result, adj, rule);
+      // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
+      if (result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
       // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 

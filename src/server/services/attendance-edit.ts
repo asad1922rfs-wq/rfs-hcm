@@ -119,7 +119,7 @@ export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentIn
   const workDate = new Date(`${date}T00:00:00Z`);
   const key = { employeeId_workDate: { employeeId: employee.id, workDate } };
   const before = await db.attendanceDay.findUnique({ where: key });
-  const data = { checkIn, checkOut, category: input.category, excused: input.excused, reason: input.reason.trim(), createdById: actor.userId };
+  const data = { checkIn, checkOut, category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), createdById: actor.userId };
   await db.attendanceAdjustment.upsert({ where: key, create: { employeeId: employee.id, workDate, ...data }, update: data });
   await recomputeAttendance({ employeeIds: [employee.id], from: date, to: date });
   const after = await db.attendanceDay.findUnique({ where: key });
@@ -127,7 +127,7 @@ export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentIn
   await recordAudit({
     actor, action: "attendance.adjust", entityType: "Employee", entityId: employee.id,
     before: snapshot(before, date),
-    after: { ...snapshot(after, date), category: input.category, excused: input.excused, reason: input.reason.trim() },
+    after: { ...snapshot(after, date), category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim() },
   });
   return after;
 }
@@ -167,7 +167,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
       skipped.push({ name: e.fullName, reason: err instanceof AppError ? err.message : "invalid times" });
       continue;
     }
-    const data = { ...times, category: input.category, excused: input.excused, reason: input.reason.trim(), createdById: actor.userId };
+    const data = { ...times, category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), createdById: actor.userId };
     await db.attendanceAdjustment.upsert({
       where: { employeeId_workDate: { employeeId: e.id, workDate } },
       create: { employeeId: e.id, workDate, ...data },
@@ -183,7 +183,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     await recordAudit({
       actor, action: "attendance.adjust_bulk", entityType: "Employee", entityId: id,
       before: snapshot(beforeBy.get(id) ?? null, date),
-      after: { ...snapshot(afterBy.get(id) ?? null, date), category: input.category, excused: input.excused, reason: input.reason.trim(), batchSize: updated.length },
+      after: { ...snapshot(afterBy.get(id) ?? null, date), category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), batchSize: updated.length },
     });
   }
   return { updated: updated.length, skipped };
