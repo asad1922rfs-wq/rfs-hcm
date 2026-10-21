@@ -276,7 +276,7 @@ export default async function EmployeeProfilePage({
                 {attendance.canEdit && <span className="text-xs text-muted-foreground">Use Edit to correct a day&apos;s check-in or check-out.</span>}
               </div>
               {attendance.rows.length ? (
-                <RegisterTable rows={[...attendance.rows].reverse()} canEdit={attendance.canEdit} mode="monthly" />
+                <RegisterTable rows={[...attendance.rows].reverse()} canEdit={attendance.canEdit} shifts={attendance.shifts} mode="monthly" />
               ) : (
                 <EmptyState title="No attendance days in this month" />
               )}

@@ -207,3 +207,31 @@ describe("grace period uses the minute shown on the clock", () => {
     expect(computeDay("2026-10-08", [pkt("2026-10-08 14:16:00"), out], SHIFT, false)).toMatchObject({ status: "LATE", lateMinutes: 16 });
   });
 });
+
+describe("shift chosen for one day in an attendance edit", () => {
+  const GENERAL = { startMinute: 14 * 60, endMinute: 23 * 60, graceMinutes: 15, overrides: [{ weekday: 5, startMinute: 15 * 60, endMinute: 0, graceMinutes: null }] };
+  const SECOND = { startMinute: 16 * 60, endMinute: 60, graceMinutes: 15 }; // 4 PM – 1 AM
+  const THIRD = { startMinute: 15 * 60, endMinute: 0, graceMinutes: 15 }; // 3 PM – 12 AM
+  const d = "2026-10-14"; // Wednesday
+  const punches = [pkt("2026-10-14 15:05:00"), pkt("2026-10-15 00:10:00")];
+
+  it("judges 15:05 – 00:10 on the 3rd shift as present", () => {
+    expect(computeDay(d, punches, ruleForDate(THIRD, d), false)).toMatchObject({ status: "PRESENT", earlyLeaveMinutes: 0 });
+  });
+
+  it("judges the same punches on the General shift as late", () => {
+    expect(computeDay(d, punches, ruleForDate(GENERAL, d), false)!.status).toBe("LATE");
+  });
+
+  it("keeps a 2nd-shift check-out at 00:55 on the same work date", () => {
+    const chosen = (date: string) => (date === d ? SECOND : undefined);
+    expect(workDateOf(pkt("2026-10-15 00:55:00"), GENERAL, chosen)).toBe(d);
+    expect(computeDay(d, [pkt("2026-10-14 16:00:00"), pkt("2026-10-15 00:55:00")], ruleForDate(SECOND, d), false)!.earlyLeaveMinutes).toBe(5);
+  });
+
+  it("widens the previous day's window to the chosen shift's later end", () => {
+    const DAY = { startMinute: 9 * 60, endMinute: 17 * 60, graceMinutes: 15 }; // window ends at midnight
+    expect(workDateOf(pkt("2026-10-15 00:55:00"), DAY)).toBe("2026-10-15");
+    expect(workDateOf(pkt("2026-10-15 00:55:00"), DAY, (date) => (date === d ? SECOND : undefined))).toBe(d);
+  });
+});

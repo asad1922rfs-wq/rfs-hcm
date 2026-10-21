@@ -7,7 +7,7 @@ import { assertPermission, can, type Actor } from "@/server/auth/session";
 import { assertEmployeeAccess, scopedEmployeeWhere } from "@/server/auth/scope";
 import { recomputeAttendance } from "@/server/services/attendance";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
-import { instantAt, PKT_OFFSET_MIN, ruleForDate, type DayAwareShift } from "@/core/attendance/engine";
+import { addDaysIso, instantAt, PKT_OFFSET_MIN, ruleForDate, type DayAwareShift } from "@/core/attendance/engine";
 import { formatMinuteOfDay, parseTimeOfDay } from "@/lib/format";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
@@ -41,6 +41,8 @@ export type AdjustmentInput = {
   category: AdjustmentCategory;
   /** Company-sanctioned: the edited time is not counted late/early (both blank: the whole day is Present). */
   excused: boolean;
+  /** Shift this one day is judged against; null = the employee's usual shift. */
+  shiftId: string | null;
 };
 
 /** Checks shared by single and bulk edits. Returns the normalised work date. */
@@ -51,12 +53,32 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
   const start = await attendanceStart();
   if (start && date < start) throw new AppError(`Attendance is tracked in this system from ${start}; earlier days were managed in the previous software.`);
   if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked. Record any correction as an adjustment in next month's payroll.");
-  if (!input.checkIn && !input.checkOut && !input.excused) {
-    throw new AppError("Enter a check-in or check-out time (both may be empty only for work from home or load shedding).");
+  if (!input.checkIn && !input.checkOut && !input.excused && !input.shiftId) {
+    throw new AppError("Enter a check-in or check-out time, or choose a shift for this day (times may be empty only for work from home, load shedding or a shift change).");
   }
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
-  return date;
+  const shift = input.shiftId
+    ? await db.shift.findFirst({ where: { id: input.shiftId, isActive: true }, include: { dayOverrides: true } })
+    : null;
+  if (input.shiftId && !shift) throw new AppError("That shift no longer exists or is inactive.");
+  return { date, shift };
 }
+
+const adjustmentData = (input: AdjustmentInput, shift: { id: string } | null, actorId: string) => ({
+  category: input.category,
+  excused: input.excused && input.category !== "OTHER",
+  reason: input.reason.trim(),
+  shiftId: shift?.id ?? null,
+  createdById: actorId,
+});
+
+/** What the audit log records about the change itself. */
+const auditDetails = (input: AdjustmentInput, shift: { name: string } | null) => ({
+  category: input.category,
+  excused: input.excused && input.category !== "OTHER",
+  reason: input.reason.trim(),
+  shift: shift?.name ?? null,
+});
 
 /**
  * Turn "HH:MM" inputs into instants on the work date. A check-out at or before the check-in falls on the next
@@ -105,7 +127,7 @@ function shiftStartFor(shift: ShiftWithOverrides | null, date: string): number |
 }
 
 export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentInput & { employeeId: string; date: string }) {
-  const date = await validateAdjustment(actor, input.date, input);
+  const { date, shift: chosenShift } = await validateAdjustment(actor, input.date, input);
   const employee = await db.employee.findUnique({
     where: { id: input.employeeId },
     select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
@@ -114,20 +136,21 @@ export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentIn
   if (date < toDateOnlyString(employee.joiningDate)) throw new AppError("That date is before the employee's joining date.");
   if (employee.exitDate && date > toDateOnlyString(employee.exitDate)) throw new AppError("That date is after the employee's exit date.");
 
-  const shiftStart = shiftStartFor(employee.shift ?? (await defaultShift()), date);
+  const shiftStart = shiftStartFor(chosenShift ?? employee.shift ?? (await defaultShift()), date);
   const { checkIn, checkOut } = resolveTimes(date, input, shiftStart);
   const workDate = new Date(`${date}T00:00:00Z`);
   const key = { employeeId_workDate: { employeeId: employee.id, workDate } };
   const before = await db.attendanceDay.findUnique({ where: key });
-  const data = { checkIn, checkOut, category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), createdById: actor.userId };
+  const data = { checkIn, checkOut, ...adjustmentData(input, chosenShift, actor.userId) };
   await db.attendanceAdjustment.upsert({ where: key, create: { employeeId: employee.id, workDate, ...data }, update: data });
-  await recomputeAttendance({ employeeIds: [employee.id], from: date, to: date });
+  // The next day too: a changed shift can move that night's after-midnight check-out between the two days.
+  await recomputeAttendance({ employeeIds: [employee.id], from: date, to: addDaysIso(date, 1) });
   const after = await db.attendanceDay.findUnique({ where: key });
 
   await recordAudit({
     actor, action: "attendance.adjust", entityType: "Employee", entityId: employee.id,
     before: snapshot(before, date),
-    after: { ...snapshot(after, date), category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim() },
+    after: { ...snapshot(after, date), ...auditDetails(input, chosenShift) },
   });
   return after;
 }
@@ -138,7 +161,7 @@ export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentIn
  * Employees that cannot be changed are skipped with a reason rather than failing the whole batch.
  */
 export async function bulkSaveAttendanceAdjustments(actor: Actor, input: AdjustmentInput & { employeeIds: string[]; date: string }) {
-  const date = await validateAdjustment(actor, input.date, input);
+  const { date, shift: chosenShift } = await validateAdjustment(actor, input.date, input);
   const ids = [...new Set(input.employeeIds)];
   if (ids.length === 0) throw new AppError("Select at least one employee.");
   if (ids.length > 500) throw new AppError("Select at most 500 employees at a time.");
@@ -162,12 +185,12 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     let times;
     try {
       // A time left empty means "use the machine punch", even where an earlier manual change set one.
-      times = resolveTimes(date, input, shiftStartFor(e.shift ?? fallbackShift, date));
+      times = resolveTimes(date, input, shiftStartFor(chosenShift ?? e.shift ?? fallbackShift, date));
     } catch (err) {
       skipped.push({ name: e.fullName, reason: err instanceof AppError ? err.message : "invalid times" });
       continue;
     }
-    const data = { ...times, category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), createdById: actor.userId };
+    const data = { ...times, ...adjustmentData(input, chosenShift, actor.userId) };
     await db.attendanceAdjustment.upsert({
       where: { employeeId_workDate: { employeeId: e.id, workDate } },
       create: { employeeId: e.id, workDate, ...data },
@@ -175,7 +198,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     });
     updated.push(e.id);
   }
-  if (updated.length) await recomputeAttendance({ employeeIds: updated, from: date, to: date });
+  if (updated.length) await recomputeAttendance({ employeeIds: updated, from: date, to: addDaysIso(date, 1) });
 
   const afterDays = await db.attendanceDay.findMany({ where: { employeeId: { in: updated }, workDate } });
   const afterBy = new Map(afterDays.map((d) => [d.employeeId, d]));
@@ -183,7 +206,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
     await recordAudit({
       actor, action: "attendance.adjust_bulk", entityType: "Employee", entityId: id,
       before: snapshot(beforeBy.get(id) ?? null, date),
-      after: { ...snapshot(afterBy.get(id) ?? null, date), category: input.category, excused: input.excused && input.category !== "OTHER", reason: input.reason.trim(), batchSize: updated.length },
+      after: { ...snapshot(afterBy.get(id) ?? null, date), ...auditDetails(input, chosenShift), batchSize: updated.length },
     });
   }
   return { updated: updated.length, skipped };
@@ -197,7 +220,7 @@ export async function removeAttendanceAdjustment(actor: Actor, employeeId: strin
   if (!existing) throw new NotFoundError("There is no manual change on that day.");
   if (await isPayrollLockedFor(date)) throw new AppError("Payroll for this month is approved, so its attendance is locked.");
   await db.attendanceAdjustment.delete({ where: { id: existing.id } });
-  await recomputeAttendance({ employeeIds: [employeeId], from: date, to: date });
+  await recomputeAttendance({ employeeIds: [employeeId], from: date, to: addDaysIso(date, 1) });
   await recordAudit({
     actor,
     action: "attendance.adjust_removed",
@@ -216,7 +239,7 @@ export async function bulkRemoveAttendanceAdjustments(actor: Actor, employeeIds:
   const existing = await db.attendanceAdjustment.findMany({ where: { employeeId: { in: [...new Set(employeeIds)] }, workDate } });
   if (existing.length === 0) return { removed: 0 };
   await db.attendanceAdjustment.deleteMany({ where: { id: { in: existing.map((a) => a.id) } } });
-  await recomputeAttendance({ employeeIds: existing.map((a) => a.employeeId), from: date, to: date });
+  await recomputeAttendance({ employeeIds: existing.map((a) => a.employeeId), from: date, to: addDaysIso(date, 1) });
   for (const a of existing) {
     await recordAudit({
       actor, action: "attendance.adjust_removed", entityType: "Employee", entityId: a.employeeId,
@@ -242,13 +265,18 @@ export type RegisterRow = {
   earlyLeaveMinutes: number;
   isOffDay: boolean;
   shiftLabel: string;
+  /** Name of the employee's own shift (the default shift when none is assigned). */
+  usualShiftName: string | null;
   /** The manual change, only for people who may edit attendance (others never see that a day was edited). */
-  adjustment: { checkIn: string | null; checkOut: string | null; reason: string; category: string; excused: boolean } | null;
+  adjustment: { checkIn: string | null; checkOut: string | null; reason: string; category: string; excused: boolean; shiftId: string | null } | null;
 };
+
+/** An active shift HR can choose for a single day in an attendance edit. */
+export type ShiftOption = DayAwareShift & { id: string; name: string };
 
 type EmployeeForRegister = {
   id: string; employeeCode: string; fullName: string; department: { name: string } | null;
-  shift: (DayAwareShift & { dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[] }) | null;
+  shift: (DayAwareShift & { name: string; dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[] }) | null;
 };
 
 async function buildRows(employees: EmployeeForRegister[], dates: string[], canEdit: boolean): Promise<RegisterRow[]> {
@@ -259,7 +287,7 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
   const ids = employees.map((e) => e.id);
   const [days, adjustments, company, holidays, defaultShift] = await Promise.all([
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate: range } }),
-    canEdit ? db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range } }) : [],
+    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range }, include: { shift: { include: { dayOverrides: true } } } }),
     db.company.findFirst({ select: { weekendDays: true } }),
     holidayDatesBetween(first, last),
     db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true } }),
@@ -276,7 +304,9 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
     for (const date of dates) {
       const d = dayMap.get(key(e.id, date));
       const a = adjMap.get(key(e.id, date));
-      const rule = shift ? ruleForDate(shift, date) : null;
+      // A day judged against another shift (attendance edit) shows that shift's name and timing.
+      const dayShift: DayAwareShift | null = canEdit && a?.shift ? { ...a.shift, overrides: a.shift.dayOverrides } : shift;
+      const rule = dayShift ? ruleForDate(dayShift, date) : null;
       rows.push({
         employeeId: e.id,
         employeeCode: e.employeeCode,
@@ -290,8 +320,11 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
         lateMinutes: d?.lateMinutes ?? 0,
         earlyLeaveMinutes: d?.earlyLeaveMinutes ?? 0,
         isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()) || holidays.has(date),
-        shiftLabel: rule ? `${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
-        adjustment: a ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused } : null,
+        shiftLabel: rule ? `${canEdit && a?.shift ? `${a.shift.name} · ` : ""}${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
+        usualShiftName: s?.name ?? null,
+        adjustment: a && canEdit
+          ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused, shiftId: a.shiftId }
+          : null,
       });
     }
   }
@@ -304,6 +337,16 @@ const employeeSelect = {
   shift: { include: { dayOverrides: true } },
 } satisfies Prisma.EmployeeSelect;
 
+/** Active shifts to choose from in an attendance edit (only loaded for people who may edit). */
+async function shiftOptions(canEdit: boolean): Promise<ShiftOption[]> {
+  if (!canEdit) return [];
+  const shifts = await db.shift.findMany({ where: { isActive: true }, orderBy: [{ isDefault: "desc" }, { name: "asc" }], include: { dayOverrides: true } });
+  return shifts.map((s) => ({
+    id: s.id, name: s.name, startMinute: s.startMinute, endMinute: s.endMinute, graceMinutes: s.graceMinutes,
+    overrides: s.dayOverrides.map((o) => ({ weekday: o.weekday, startMinute: o.startMinute, endMinute: o.endMinute, graceMinutes: o.graceMinutes })),
+  }));
+}
+
 /** Every employee (within the viewer's scope) on one date, optionally filtered by department and name/code search. */
 const attendanceStart = async () => attendanceStartOf(await db.company.findFirst({ select: { attendanceStartDate: true } }));
 
@@ -313,7 +356,7 @@ export async function dailyRegister(actor: Actor, date: string, departmentId?: s
   const d = toDateOnlyString(parseDateOnly(date));
   const start = await attendanceStart();
   // Before the attendance start the previous software holds the record, so nothing is listed.
-  if (start && d < start) return { rows: [], canEdit: false, trackedFrom: start };
+  if (start && d < start) return { rows: [], canEdit: false, trackedFrom: start, shifts: [] as ShiftOption[] };
   const workDate = new Date(`${d}T00:00:00Z`);
   const employees = await db.employee.findMany({
     where: {
@@ -330,7 +373,7 @@ export async function dailyRegister(actor: Actor, date: string, departmentId?: s
     select: employeeSelect,
   });
   const canEdit = can(actor, "attendance.edit", "all");
-  return { rows: await buildRows(employees, [d], canEdit), canEdit, trackedFrom: start };
+  return { rows: await buildRows(employees, [d], canEdit), canEdit, trackedFrom: start, shifts: await shiftOptions(canEdit) };
 }
 
 /** One employee's month, day by day. */
@@ -344,5 +387,5 @@ export async function monthRegister(actor: Actor, employeeId: string, year: numb
     (d) => d <= today && d >= tracked && (!employee.exitDate || d <= toDateOnlyString(employee.exitDate)),
   );
   const canEdit = can(actor, "attendance.edit", "all");
-  return { rows: await buildRows([employee], dates, canEdit), canEdit };
+  return { rows: await buildRows([employee], dates, canEdit), canEdit, shifts: await shiftOptions(canEdit) };
 }

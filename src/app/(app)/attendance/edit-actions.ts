@@ -17,6 +17,7 @@ const adjustmentSchema = z.object({
   reason: z.string().trim().min(3, "Give a reason for the change.").max(300),
   category: z.enum(ADJUSTMENT_CATEGORIES).default("OTHER"),
   excused: z.preprocess((v) => v === "on" || v === "true", z.boolean()),
+  shiftId: z.preprocess((v) => (v === "" || v === undefined ? null : v), z.string().max(40).nullable()),
 });
 
 function parse(fd: FormData) {

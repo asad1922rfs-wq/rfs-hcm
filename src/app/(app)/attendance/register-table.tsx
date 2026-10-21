@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DAY_STATUSES, type DayStatus } from "@/core/attendance/day-status";
 import { formatHoursMinutes } from "@/core/attendance/month-calendar";
-import type { RegisterRow } from "@/server/services/attendance-edit";
+import type { RegisterRow, ShiftOption } from "@/server/services/attendance-edit";
 import { to12h } from "@/lib/format";
 import { AdjustDialog } from "./adjust-dialog";
 import { BulkAdjustButton } from "./bulk-adjust";
@@ -31,10 +31,12 @@ function StatusPill({ row }: { row: RegisterRow }) {
  * with multi-select for bulk edits) or the date (one employee's month).
  */
 export function RegisterTable({
-  rows, canEdit, mode, toolbar, summary, today,
+  rows, canEdit, shifts = [], mode, toolbar, summary, today,
 }: {
   rows: RegisterRow[];
   canEdit: boolean;
+  /** Active shifts HR may choose for a single day when editing. */
+  shifts?: ShiftOption[];
   mode: "daily" | "monthly";
   /** Filters shown on the left of the top bar (daily register); the Bulk edit button sits on the right. */
   toolbar?: ReactNode;
@@ -61,6 +63,7 @@ export function RegisterTable({
                 today={today ?? date}
                 employees={rows.filter((r) => selected.size === 0 || selected.has(r.employeeId)).map((r) => ({ id: r.employeeId, name: r.fullName }))}
                 selectedCount={selected.size}
+                shifts={shifts}
                 onDone={() => setSelected(new Set())}
               />
             </div>
@@ -126,7 +129,7 @@ export function RegisterTable({
                   {r.earlyLeaveMinutes > 0 && <span className="ml-1">Early {r.earlyLeaveMinutes}m</span>}
                   {r.status !== "LATE" && !r.earlyLeaveMinutes && "—"}
                 </TableCell>
-                {canEdit && <TableCell className="text-right"><AdjustDialog row={r} today={today} /></TableCell>}
+                {canEdit && <TableCell className="text-right"><AdjustDialog row={r} today={today} shifts={shifts} /></TableCell>}
               </TableRow>
             ))}
           </TableBody>

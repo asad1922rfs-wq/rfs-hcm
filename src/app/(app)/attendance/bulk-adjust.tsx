@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Field, FormMessage } from "@/components/form";
 import { AdjustmentFields } from "./adjustment-fields";
 import { bulkAdjustmentAction, bulkRemoveAdjustmentAction } from "./edit-actions";
+import type { ShiftOption } from "@/server/services/attendance-edit";
 
 const longDate = (date: string) =>
   new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
@@ -17,12 +18,13 @@ const longDate = (date: string) =>
  * nobody is selected. The date is chosen inside the dialog, starting from the register's date.
  */
 export function BulkAdjustButton({
-  date, today, employees, selectedCount, onDone,
+  date, today, employees, selectedCount, shifts = [], onDone,
 }: {
   date: string;
   today: string;
   employees: { id: string; name: string }[];
   selectedCount: number;
+  shifts?: ShiftOption[];
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -80,7 +82,7 @@ export function BulkAdjustButton({
           {state && !state.ok && <FormMessage state={state} />}
           <Field label="Date" name="date" type="date" required max={today} value={targetDate} onChange={(e) => setTargetDate(e.target.value)} errors={fe?.date} />
           <p className="-mt-2 rounded-md bg-primary/10 px-3 py-2 text-base font-semibold text-primary">{targetDate ? longDate(targetDate) : "Choose a date"}</p>
-          <AdjustmentFields errors={fe} defaults={{ category: "LOAD_SHEDDING", excused: true }} />
+          <AdjustmentFields errors={fe} date={targetDate} shifts={shifts} defaults={{ category: "LOAD_SHEDDING", excused: true }} />
           <Button type="submit" disabled={pending || removing || !targetDate}>
             {pending && <Loader2 className="size-4 animate-spin" />} Apply to {who}
           </Button>

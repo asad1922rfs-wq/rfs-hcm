@@ -179,9 +179,13 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const adjustmentRows = await db.attendanceAdjustment.findMany({
     where: {
       employeeId: { in: employees.map((e) => e.id) },
-      workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) },
+      // The day before too: a shift chosen for it can pull that night's late check-out back onto it.
+      workDate: { gte: new Date(`${addDaysIso(opts.from, -1)}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) },
     },
-    select: { employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true, category: true },
+    select: {
+      employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true, category: true,
+      shift: { include: { dayOverrides: true } },
+    },
   });
   // Approved leave (working days only): shown as LEAVE when there are no punches that day.
   const leaveRows = await db.leaveRequest.findMany({
@@ -198,9 +202,13 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     const s = emp.shift ?? defaultShift;
     const shift: DayAwareShift = s ? { ...s, overrides: s.dayOverrides } : FALLBACK_SHIFT;
     const byDate = new Map<string, Date[]>();
+    const dayShift = (date: string): DayAwareShift | undefined => {
+      const chosen = adjustments.get(`${emp.id}|${date}`)?.shift;
+      return chosen ? { ...chosen, overrides: chosen.dayOverrides } : undefined;
+    };
     for (const p of punches) {
       if (p.employeeId !== emp.id) continue;
-      const wd = workDateOf(p.punchedAt, shift);
+      const wd = workDateOf(p.punchedAt, shift, dayShift);
       (byDate.get(wd) ?? byDate.set(wd, []).get(wd)!).push(p.punchedAt);
     }
 
@@ -219,7 +227,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const machine = byDate.get(date) ?? [];
       const effective = adj ? applyAdjustment(machine, adj) : machine;
       // An adjusted day is never "in progress": the corrected times are taken as final.
-      const rule = ruleForDate(shift, date);
+      // An edit may judge this one day against another shift (its timing, day overrides and grace).
+      const rule = ruleForDate(dayShift(date) ?? shift, date);
       let result = computeDay(date, effective, rule, isOffDay, date === today && !adj);
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
@@ -231,7 +240,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       if (result) {
         data = {
           ...result, ...(onlyCheckOut ? { firstIn: null, lastOut: adj!.checkOut } : {}), status: result.status as AttendanceStatus, isOffDay, isAdjusted: !!adj,
-          shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
+          shiftId: adj?.shift?.id ?? emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
         };
       } else if (!isOffDay && onLeave(emp.id, date)) {
         data = {

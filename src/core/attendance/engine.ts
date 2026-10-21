@@ -64,11 +64,15 @@ export function ruleForDate(shift: DayAwareShift, date: string): ShiftRule {
 /**
  * Which work date a punch belongs to: early-morning punches that fall inside the previous day's window
  * (and before today's window opens) go to the previous day. Each day uses its own timing.
+ * `dayShift` gives a shift chosen for a single day by an attendance edit: the previous day's window then
+ * reaches past the later of the two shift ends, so a late check-out on the chosen shift stays on that day.
  */
-export function workDateOf(instant: Date, shift: DayAwareShift): string {
+export function workDateOf(instant: Date, shift: DayAwareShift, dayShift?: (date: string) => DayAwareShift | undefined): string {
   const { date, minute } = toLocal(instant);
   const prev = addDaysIso(date, -1);
-  const prevWindowEnd = shiftEndOffset(ruleForDate(shift, prev)) + WINDOW_AFTER_END_MIN;
+  const chosen = dayShift?.(prev);
+  const prevEnd = Math.max(shiftEndOffset(ruleForDate(shift, prev)), chosen ? shiftEndOffset(ruleForDate(chosen, prev)) : 0);
+  const prevWindowEnd = prevEnd + WINDOW_AFTER_END_MIN;
   const todayWindowStart = ruleForDate(shift, date).startMinute - WINDOW_BEFORE_START_MIN;
   if (minute < todayWindowStart && minute + 1440 <= prevWindowEnd) return prev;
   return date;

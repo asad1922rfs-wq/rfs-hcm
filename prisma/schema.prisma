@@ -76,6 +76,7 @@ model Shift {
   isActive     Boolean    @default(true)
   employees    Employee[]
   dayOverrides ShiftDayOverride[]
+  adjustments  AttendanceAdjustment[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
@@ -437,6 +438,9 @@ model AttendanceAdjustment {
   /// Company-sanctioned: the day counts as Present with no late/early (e.g. load-shedding early off)
   excused     Boolean   @default(false)
   reason      String    @db.VarChar(500)
+  /// Shift this one day is judged against (late/early); null = the employee's usual shift
+  shiftId     String?
+  shift       Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
