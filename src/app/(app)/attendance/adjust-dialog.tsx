@@ -1,20 +1,19 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useState, useTransition } from "react";
-import { Loader2, Pencil, RotateCcw } from "lucide-react";
+import { startTransition, useActionState, useEffect, useState } from "react";
+import { Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FormMessage } from "@/components/form";
 import { AdjustmentFields } from "./adjustment-fields";
 import type { RegisterRow } from "@/server/services/attendance-edit";
-import { removeAdjustmentAction, saveAdjustmentAction } from "./edit-actions";
+import { saveAdjustmentAction } from "./edit-actions";
 
 export function AdjustDialog({ row, today }: { row: RegisterRow; today?: string }) {
   const [open, setOpen] = useState(false);
   const [state, action, saving] = useActionState(saveAdjustmentAction.bind(null, row.employeeId), null);
   const [date, setDate] = useState(row.date);
-  const [reverting, startRevert] = useTransition();
   const fe = state && !state.ok ? state.fieldErrors : undefined;
 
   useEffect(() => {
@@ -52,25 +51,7 @@ export function AdjustDialog({ row, today }: { row: RegisterRow; today?: string 
             errors={fe}
             defaults={row.adjustment ? { checkIn: row.adjustment.checkIn, checkOut: row.adjustment.checkOut, reason: row.adjustment.reason, category: row.adjustment.category, excused: row.adjustment.excused } : undefined}
           />
-          <div className="flex flex-wrap justify-between gap-2">
-            {row.adjustment ? (
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={reverting}
-                onClick={() =>
-                  startRevert(async () => {
-                    const r = await removeAdjustmentAction(row.employeeId, row.date);
-                    if (r.ok) {
-                      toast.success(r.message);
-                      setOpen(false);
-                    } else toast.error(r.error);
-                  })
-                }
-              >
-                <RotateCcw className="size-4" /> Revert to machine
-              </Button>
-            ) : <span />}
+          <div className="flex justify-end">
             <Button type="submit" disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />} Save</Button>
           </div>
         </form>
