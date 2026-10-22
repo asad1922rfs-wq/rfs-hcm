@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, FolderOpen } from "lucide-react";
+import Link from "next/link";
+import { Eye, FolderOpen, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type RequestRow = { label: string; count: number | null };
+export type RequestRow = { label: string; count: number | null; href?: string };
 
 /** "My requests" / "My approvals". A null count means the request type opens in a later phase. */
-export function RequestsCard({ requests, approvals, showApprovals }: { requests: RequestRow[]; approvals: RequestRow[]; showApprovals: boolean }) {
+export function RequestsCard({ requests, approvals, showApprovals, newRequestHref }: { requests: RequestRow[]; approvals: RequestRow[]; showApprovals: boolean; newRequestHref?: string }) {
   const [tab, setTab] = useState<"requests" | "approvals">("requests");
   const rows = tab === "requests" ? requests : approvals;
   return (
@@ -25,7 +26,11 @@ export function RequestsCard({ requests, approvals, showApprovals }: { requests:
       <ul className="max-h-64 flex-1 overflow-y-auto">
         {rows.map((r) => (
           <li key={r.label} className="flex items-center justify-between gap-3 border-t px-4 py-2.5 text-sm">
-            <span className={cn(r.count === null && "text-muted-foreground")}>{r.label}</span>
+            {r.href ? (
+              <Link href={r.href} className="hover:text-primary hover:underline">{r.label}</Link>
+            ) : (
+              <span className={cn(r.count === null && "text-muted-foreground")}>{r.label}</span>
+            )}
             {r.count === null ? (
               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">Soon</span>
             ) : (
@@ -34,6 +39,11 @@ export function RequestsCard({ requests, approvals, showApprovals }: { requests:
           </li>
         ))}
       </ul>
+      {tab === "requests" && newRequestHref && (
+        <div className="border-t px-4 py-2.5 text-right">
+          <Link href={newRequestHref} className="inline-flex items-center gap-1 text-sm text-primary hover:underline"><Plus className="size-3.5" /> Attendance request</Link>
+        </div>
+      )}
     </div>
   );
 }

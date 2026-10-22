@@ -6,13 +6,14 @@ import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
+import { applyLateWaiver } from "@/core/attendance/waiver";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
 /** Fallback when an employee has no shift and no default shift exists. */
-const FALLBACK_SHIFT: DayAwareShift = { startMinute: 14 * 60, endMinute: 23 * 60, graceMinutes: 15 };
+export const FALLBACK_SHIFT: DayAwareShift = { startMinute: 14 * 60, endMinute: 23 * 60, graceMinutes: 15 };
 
 // ───────────── Import ─────────────
 
@@ -195,6 +196,13 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const onLeave = (employeeId: string, date: string) =>
     leaveRows.some((l) => l.employeeId === employeeId && toDateOnlyString(l.startDate) <= date && toDateOnlyString(l.endDate) >= date);
 
+  // Approved late waivers (attendance requests): that day's Late counts as Present.
+  const waiverRows = await db.attendanceRequest.findMany({
+    where: { employeeId: { in: employees.map((e) => e.id) }, status: "APPROVED", workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
+    select: { employeeId: true, workDate: true },
+  });
+  const waived = new Set(waiverRows.map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
+
   const adjustments = new Map(adjustmentRows.map((a) => [`${a.employeeId}|${toDateOnlyString(a.workDate)}`, a]));
 
   const writes: Prisma.PrismaPromise<unknown>[] = [];
@@ -233,6 +241,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
       if (result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
+      if (result && !isOffDay) result = applyLateWaiver(result, waived.has(`${emp.id}|${date}`));
       // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 

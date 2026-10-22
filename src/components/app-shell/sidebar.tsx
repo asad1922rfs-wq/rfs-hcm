@@ -31,6 +31,9 @@ const ICONS: Record<NavIcon, React.ComponentType<{ className?: string }>> = {
 
 export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; onNavigate?: () => void }) {
   const pathname = usePathname();
+  const matches = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  // The most specific item wins: /attendance/requests highlights "Attendance requests", not "Attendance".
+  const activeHref = sections.flatMap((s) => s.items).filter((i) => matches(i.href)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
   return (
     <nav className="flex flex-col gap-6 px-3 py-4" aria-label="Main">
       {sections.map((section) => (
@@ -39,7 +42,7 @@ export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; o
           <ul className="flex flex-col gap-0.5">
             {section.items.map((item) => {
               const Icon = ICONS[item.icon];
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const active = item.href === activeHref;
               if (item.soon) {
                 return (
                   <li key={item.href}>

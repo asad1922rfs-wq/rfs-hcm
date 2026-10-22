@@ -156,6 +156,7 @@ model Employee {
   rawPunches        RawPunch[]
   attendanceDays    AttendanceDay[]
   attendanceAdjustments AttendanceAdjustment[]
+  attendanceRequests AttendanceRequest[]
   payrollItems      PayrollItem[]
   leaveRequests     LeaveRequest[]
   loans             Loan[]
@@ -446,6 +447,39 @@ model AttendanceAdjustment {
   updatedAt   DateTime  @updatedAt
 
   @@unique([employeeId, workDate])
+}
+
+enum AttendanceRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Employee asks for a late arrival to be waived. Approved only when the day's worked time covers the shift;
+/// the day then counts as Present (not Late) in attendance and payroll.
+model AttendanceRequest {
+  id              String                  @id @default(cuid())
+  employeeId      String
+  employee        Employee                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate        DateTime                @db.Date
+  /// One of WAIVER_REASONS (src/core/attendance/waiver.ts); the text is stored as shown at the time
+  reasonKey       String                  @db.VarChar(40)
+  reasonText      String                  @db.VarChar(200)
+  note            String?                 @db.VarChar(300)
+  status          AttendanceRequestStatus @default(PENDING)
+  /// Worked and required (shift length) minutes when the request was decided
+  workedMinutes   Int?
+  requiredMinutes Int?
+  requestedById   String
+  decidedById     String?
+  decidedAt       DateTime?
+  decisionNote    String?                 @db.VarChar(1000)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([employeeId, workDate])
+  @@index([status])
 }
 
 // ───────────────────────────── Payroll ─────────────────────────────

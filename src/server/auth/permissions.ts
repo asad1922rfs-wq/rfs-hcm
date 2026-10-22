@@ -21,7 +21,8 @@ export const PERMISSIONS = {
   "attendance.read": { group: "Attendance", label: "View attendance", scopes: SCOPES },
   "attendance.manage": { group: "Attendance", label: "Manage attendance and corrections", scopes: ["all"] },
   "attendance.edit": { group: "Attendance", label: "Edit attendance times (check-in / check-out)", scopes: ["all"] },
-  "attendance.approve": { group: "Attendance", label: "Approve attendance corrections", scopes: ["team", "department", "all"] },
+  "attendance.request": { group: "Attendance", label: "Request a late waiver (attendance request)", scopes: ["self"] },
+  "attendance.approve": { group: "Attendance", label: "Approve attendance requests (late waivers)", scopes: ["team", "department", "all"] },
   "leave.read": { group: "Leave", label: "View leave", scopes: SCOPES },
   "leave.request": { group: "Leave", label: "Request leave", scopes: ["self"] },
   "leave.approve": { group: "Leave", label: "Approve leave", scopes: ["team", "department", "all"] },
@@ -86,7 +87,7 @@ export const SYSTEM_ROLES = {
     description: "Employee records, attendance, leave, payroll preparation, payslips and reports",
     permissions: [
       "employee.read:all", "employee.manage:all", "salary.read:all", "salary.manage:all",
-      "profile.update:self", "attendance.read:all", "attendance.manage:all", "attendance.approve:all",
+      "profile.update:self", "attendance.read:all", "attendance.manage:all", "attendance.approve:all", "attendance.request:self",
       "leave.read:all", "leave.request:self", "leave.approve:all", "payroll.read:all", "payroll.prepare:all",
       "payslip.read:all", "payslip.manage:all", "report.read:all", "settings.organisation:all",
       "user.manage:all", "audit.read:all", "bank.read:self", "loan.read:all", "loan.manage:all",
@@ -97,7 +98,7 @@ export const SYSTEM_ROLES = {
     name: "Finance",
     description: "Reviews and approves payroll, sees salaries and bank details for payment, payroll reports",
     permissions: [
-      "employee.read:all", "salary.read:all", "bank.read:all", "attendance.read:all",
+      "employee.read:all", "salary.read:all", "bank.read:all", "attendance.read:all", "attendance.request:self",
       "leave.read:self", "leave.request:self", "payroll.read:all", "payroll.approve:all", "payslip.read:all", "report.read:all",
       "loan.read:all", "loan.manage:all", "document.read:self",
     ],
@@ -107,7 +108,7 @@ export const SYSTEM_ROLES = {
     description: "Team attendance, team leave approvals and department reports",
     permissions: [
       "employee.read:team", "salary.read:self", "bank.read:self",
-      "attendance.read:team", "attendance.approve:team", "leave.read:team", "leave.request:self",
+      "attendance.read:team", "attendance.approve:team", "attendance.request:self", "leave.read:team", "leave.request:self",
       "leave.approve:team", "payslip.read:self", "report.read:team", "loan.read:team",
       "document.read:self",
     ],
@@ -117,7 +118,7 @@ export const SYSTEM_ROLES = {
     description: "Personal dashboard, own attendance, salary, payslips and leave requests",
     permissions: [
       "employee.read:self", "salary.read:self", "bank.read:self",
-      "attendance.read:self", "leave.read:self", "leave.request:self", "payslip.read:self", "loan.read:self",
+      "attendance.read:self", "attendance.request:self", "leave.read:self", "leave.request:self", "payslip.read:self", "loan.read:self",
       "document.read:self",
     ],
   },

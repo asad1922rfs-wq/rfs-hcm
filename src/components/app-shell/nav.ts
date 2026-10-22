@@ -8,7 +8,9 @@ export type NavIcon =
 export type NavItem = { href: string; label: string; icon: NavIcon; soon?: boolean };
 export type NavSection = { title: string; items: NavItem[] };
 
-type Rule = NavItem & { permission?: Permission; scope?: Scope; requiresEmployee?: boolean };
+type Grant = { permission: Permission; scope?: Scope };
+/** `anyOf`: shown when the actor has at least one of these grants. */
+type Rule = NavItem & { permission?: Permission; scope?: Scope; anyOf?: Grant[]; requiresEmployee?: boolean };
 
 const SECTIONS: { title: string; items: Rule[] }[] = [
   {
@@ -23,6 +25,10 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
     items: [
       { href: "/employees", label: "Employees", icon: "employees", permission: "employee.read", scope: "team" },
       { href: "/attendance", label: "Attendance", icon: "attendance", permission: "attendance.read", scope: "team" },
+      {
+        href: "/attendance/requests", label: "Attendance requests", icon: "attendance",
+        anyOf: [{ permission: "attendance.request", scope: "self" }, { permission: "attendance.approve", scope: "team" }],
+      },
       { href: "/leave", label: "Leave", icon: "leave", permission: "leave.read" },
     ],
   },
@@ -54,7 +60,10 @@ export function navigationFor(actor: Actor): NavSection[] {
   return SECTIONS.map((section) => ({
     title: section.title,
     items: section.items
-      .filter((i) => (!i.permission || hasScope(actor.grants, i.permission, i.scope)) && (!i.requiresEmployee || actor.employeeId))
+      .filter((i) =>
+        (!i.permission || hasScope(actor.grants, i.permission, i.scope))
+        && (!i.anyOf || i.anyOf.some((g) => hasScope(actor.grants, g.permission, g.scope)))
+        && (!i.requiresEmployee || actor.employeeId))
       .map(({ href, label, icon, soon }) => ({ href, label, icon, soon })),
   })).filter((s) => s.items.length > 0);
 }

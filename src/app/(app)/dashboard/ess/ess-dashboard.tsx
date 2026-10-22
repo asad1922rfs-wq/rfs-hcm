@@ -40,7 +40,7 @@ function TableHead({ left, right }: { left: string; right: string }) {
   );
 }
 
-export function EssDashboard({ data, canImport, showApprovals }: { data: Data; canImport: boolean; showApprovals: boolean }) {
+export function EssDashboard({ data, canImport, showApprovals, canRequestAttendance }: { data: Data; canImport: boolean; showApprovals: boolean; canRequestAttendance: boolean }) {
   const now = new Date();
   const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   const periodLabels = {
@@ -143,15 +143,16 @@ export function EssDashboard({ data, canImport, showApprovals }: { data: Data; c
         <Card className="gap-0 overflow-hidden py-0">
           <RequestsCard
             showApprovals={showApprovals}
+            newRequestHref={s.isSelf && canRequestAttendance ? "/attendance/requests?new=1" : undefined}
             requests={[
-              { label: "Attendance correction requests", count: null },
+              { label: "Attendance requests (pending)", count: data.attendanceRequests?.pending ?? 0, href: s.isSelf ? "/attendance/requests" : undefined },
               { label: `Leave requests (pending)`, count: data.leaveRequests?.pending ?? 0 },
               { label: `Leave approved this year`, count: data.leaveRequests?.approved ?? 0 },
               { label: "Loan requests (pending)", count: s.loans?.pendingRequests ?? 0 },
               { label: "Employee info requests", count: null },
             ]}
             approvals={[
-              { label: "Attendance corrections", count: null },
+              { label: "Attendance corrections", count: data.pendingAttendanceApprovals ?? 0, href: "/attendance/requests?view=approvals" },
               { label: "Leave requests", count: data.pendingApprovals ?? 0 },
               ...(data.canManageLoans ? [{ label: "Loan requests", count: data.pendingLoanApprovals ?? 0 }] : []),
             ]}

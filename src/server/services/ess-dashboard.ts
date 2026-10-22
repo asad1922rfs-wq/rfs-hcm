@@ -16,6 +16,7 @@ import { nextAnniversary, todayInPKT, toDateOnlyString, yearsBetween } from "@/l
 import { asStringArray, attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidaysBetween } from "@/server/services/holidays";
 import { activeLoanSummary, pendingLoanCount } from "@/server/services/loans";
+import { pendingAttendanceRequestCount } from "@/server/services/attendance-requests";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
 function clockLabel(instant: Date | null, workDate: string): string | null {
@@ -113,12 +114,14 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     }
   }
 
-  const [leave, myRequests, approvals, loans, loanApprovals] = await Promise.all([
+  const [leave, myRequests, approvals, loans, loanApprovals, attendanceRequestsPending, attendanceApprovals] = await Promise.all([
     leaveBalances(employee.id, today.getUTCFullYear()),
     db.leaveRequest.groupBy({ by: ["status"], where: { employeeId: employee.id, startDate: { gte: new Date(Date.UTC(today.getUTCFullYear(), 0, 1)) } }, _count: { _all: true } }),
     pendingLeaveCount(actor),
     canAccessEmployee(actor, "loan.read", employee.id).then((ok) => (ok ? activeLoanSummary(employee.id) : null)),
     pendingLoanCount(actor),
+    db.attendanceRequest.count({ where: { employeeId: employee.id, status: "PENDING" } }),
+    pendingAttendanceRequestCount(actor),
   ]);
   const requestCount = (s: string) => myRequests.find((r) => r.status === s)?._count._all ?? 0;
 
@@ -127,6 +130,8 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     leaveRequests: { pending: requestCount("PENDING"), approved: requestCount("APPROVED") },
     pendingApprovals: approvals,
     pendingLoanApprovals: loanApprovals,
+    attendanceRequests: { pending: attendanceRequestsPending },
+    pendingAttendanceApprovals: attendanceApprovals,
     canManageLoans: can(actor, "loan.manage", "all"),
     subject: {
       ...employee,

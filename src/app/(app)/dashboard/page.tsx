@@ -45,6 +45,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             workClock: d.subject ? await todayWorkClock(d.subject.id) : null,
           }))}
           canImport={can(actor, "attendance.manage", "all")}
+          canRequestAttendance={can(actor, "attendance.request", "self")}
           showApprovals={can(actor, "leave.approve", "team") || can(actor, "attendance.approve", "team") || can(actor, "loan.manage", "all")}
         />
       )}
