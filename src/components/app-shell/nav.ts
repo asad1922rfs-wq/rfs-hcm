@@ -5,12 +5,14 @@ export type NavIcon =
   | "dashboard" | "employees" | "profile" | "attendance" | "leave" | "payroll" | "payslips" | "reports"
   | "devices" | "company" | "organisation" | "shifts" | "users" | "roles" | "audit" | "holidays" | "loans";
 
-export type NavItem = { href: string; label: string; icon: NavIcon; soon?: boolean };
+/** `badge`: pending items waiting for the actor (shown as a pill). */
+export type NavItem = { href: string; label: string; icon: NavIcon; soon?: boolean; badge?: number };
 export type NavSection = { title: string; items: NavItem[] };
 
 type Grant = { permission: Permission; scope?: Scope };
 /** `anyOf`: shown when the actor has at least one of these grants. */
-type Rule = NavItem & { permission?: Permission; scope?: Scope; anyOf?: Grant[]; requiresEmployee?: boolean };
+/** `selfOnlyWhen`: an actor with only the self scope of `permission` sees the item only when this flag is set. */
+type Rule = Omit<NavItem, "badge"> & { permission?: Permission; scope?: Scope; anyOf?: Grant[]; requiresEmployee?: boolean; selfOnlyWhen?: "hasOwnLoans" };
 
 const SECTIONS: { title: string; items: Rule[] }[] = [
   {
@@ -37,7 +39,7 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
     items: [
       { href: "/payroll", label: "Payroll", icon: "payroll", permission: "payroll.read", scope: "all" },
       { href: "/payslips", label: "Payslips", icon: "payslips", permission: "payslip.read", requiresEmployee: true },
-      { href: "/loans", label: "Loans", icon: "loans", permission: "loan.read" },
+      { href: "/loans", label: "Loans", icon: "loans", permission: "loan.read", selfOnlyWhen: "hasOwnLoans" },
       { href: "/reports", label: "Reports", icon: "reports", permission: "report.read", scope: "team" },
     ],
   },
@@ -56,14 +58,15 @@ const SECTIONS: { title: string; items: Rule[] }[] = [
   },
 ];
 
-export function navigationFor(actor: Actor): NavSection[] {
+export function navigationFor(actor: Actor, badges: Record<string, number> = {}, flags: { hasOwnLoans?: boolean } = {}): NavSection[] {
   return SECTIONS.map((section) => ({
     title: section.title,
     items: section.items
       .filter((i) =>
         (!i.permission || hasScope(actor.grants, i.permission, i.scope))
         && (!i.anyOf || i.anyOf.some((g) => hasScope(actor.grants, g.permission, g.scope)))
-        && (!i.requiresEmployee || actor.employeeId))
-      .map(({ href, label, icon, soon }) => ({ href, label, icon, soon })),
+        && (!i.requiresEmployee || actor.employeeId)
+        && (!i.selfOnlyWhen || !i.permission || hasScope(actor.grants, i.permission, "team") || hasScope(actor.grants, "loan.manage", "all") || flags[i.selfOnlyWhen]))
+      .map(({ href, label, icon, soon }) => ({ href, label, icon, soon, ...(badges[href] ? { badge: badges[href] } : {}) })),
   })).filter((s) => s.items.length > 0);
 }

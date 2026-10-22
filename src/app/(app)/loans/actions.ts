@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  cancelLoan, clearMonthInstallment, createLoan, decideLoan, recordCashRepayment, setMonthInstallment,
+  cancelLoan, clearMonthInstallment, createLoan, decideLoan, deleteLoan, recordCashRepayment, setMonthInstallment,
 } from "@/server/services/loans";
 import { MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
 import { optionalText, requiredText } from "@/lib/validation";
@@ -67,6 +67,16 @@ export async function cancelLoanAction(id: string, note: string): Promise<Action
     await cancelLoan(await requireActor(), id, z.string().max(1000).parse(note));
     refresh(id);
     return { ok: true, message: "Loan cancelled." };
+  });
+}
+
+export async function deleteLoanAction(id: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await deleteLoan(await requireActor(), id);
+    refresh();
+    revalidatePath(`/loans/${id}`);
+    revalidatePath("/payroll");
+    return { ok: true, message: "Loan deleted." };
   });
 }
 

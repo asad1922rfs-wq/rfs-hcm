@@ -1,14 +1,15 @@
 import { requireActor } from "@/server/auth/session";
 import { getCompany } from "@/server/services/organisation";
 import { logoUrl } from "@/server/services/branding";
+import { notificationsFor } from "@/server/services/notifications";
 import { navigationFor } from "@/components/app-shell/nav";
 import { Brand, SidebarNav } from "@/components/app-shell/sidebar";
 import { Topbar } from "@/components/app-shell/topbar";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const actor = await requireActor();
-  const company = await getCompany();
-  const sections = navigationFor(actor);
+  const [company, notifications] = await Promise.all([getCompany(), notificationsFor(actor)]);
+  const sections = navigationFor(actor, notifications.navBadges, { hasOwnLoans: notifications.hasOwnLoans });
 
   return (
     <div className="min-h-dvh">
@@ -19,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="lg:pl-64">
         <Topbar
           sections={sections}
+          notifications={notifications}
           companyShortName={company.shortName}
           logoUrl={logoUrl(company)}
           user={{ displayName: actor.displayName, roleName: actor.roleName, email: actor.email, hasProfile: !!actor.employeeId }}

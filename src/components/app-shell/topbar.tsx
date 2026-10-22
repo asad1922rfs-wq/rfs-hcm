@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { KeyRound, LogOut, Menu, Monitor, Moon, Sun, UserCircle } from "lucide-react";
+import { Bell, CheckCircle2, KeyRound, LogOut, Menu, Monitor, Moon, Sun, UserCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -15,15 +15,17 @@ import { signOutAction } from "@/app/login/actions";
 import { Brand, SidebarNav } from "./sidebar";
 import { GlobalSearch } from "./global-search";
 import type { NavSection } from "./nav";
+import type { Notifications } from "@/server/services/notifications";
 
 type Props = {
   sections: NavSection[];
+  notifications: Notifications;
   companyShortName: string;
   logoUrl: string | null;
   user: { displayName: string; roleName: string; email: string | null; hasProfile: boolean };
 };
 
-export function Topbar({ sections, companyShortName, logoUrl, user }: Props) {
+export function Topbar({ sections, notifications, companyShortName, logoUrl, user }: Props) {
   const [open, setOpen] = useState(false);
   const { setTheme } = useTheme();
 
@@ -42,6 +44,7 @@ export function Topbar({ sections, companyShortName, logoUrl, user }: Props) {
 
       <div className="min-w-0 flex-1"><GlobalSearch sections={sections} /></div>
       <div className="ml-auto flex items-center gap-2">
+        <NotificationsBell notifications={notifications} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Change theme">
@@ -88,5 +91,45 @@ export function Topbar({ sections, companyShortName, logoUrl, user }: Props) {
         </DropdownMenu>
       </div>
     </header>
+  );
+}
+
+function NotificationsBell({ notifications }: { notifications: Notifications }) {
+  const { pending, decided, total } = notifications;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative" aria-label={total ? `Notifications (${total})` : "Notifications"}>
+          <Bell className="size-5" />
+          {total > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums">
+              {total > 99 ? "99+" : total}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {total === 0 && <p className="px-2 py-6 text-center text-sm text-muted-foreground">You&apos;re all caught up</p>}
+        {pending.map((g) => (
+          <DropdownMenuItem key={g.key} asChild>
+            <Link href={g.href} className="flex items-center justify-between gap-3">
+              <span className="text-sm">{g.label}</span>
+              <span className="rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white tabular-nums">{g.count}</span>
+            </Link>
+          </DropdownMenuItem>
+        ))}
+        {pending.length > 0 && decided.length > 0 && <DropdownMenuSeparator />}
+        {decided.map((d) => (
+          <DropdownMenuItem key={d.id} asChild>
+            <Link href={d.href} className="flex items-start gap-2">
+              {d.approved ? <CheckCircle2 className="mt-0.5 text-emerald-600" /> : <XCircle className="mt-0.5 text-destructive" />}
+              <span className="text-sm">{d.text}</span>
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

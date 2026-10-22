@@ -225,7 +225,9 @@ export async function allLeaveRequests(actor: Actor, filter: { status?: LeaveSta
 }
 
 export async function pendingLeaveCount(actor: Actor) {
-  return (await approvalQueue(actor)).length;
+  if (!can(actor, "leave.approve", "team")) return 0;
+  const scope = await scopedEmployeeWhere(actor, "leave.approve");
+  return db.leaveRequest.count({ where: { status: "PENDING", employee: { AND: [scope, actor.employeeId ? { NOT: { id: actor.employeeId } } : {}] } } });
 }
 
 /** Approved leave dates per employee in a range, split by paid/unpaid — used by attendance and payroll. */

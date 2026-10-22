@@ -1,16 +1,18 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import { Ban, Check, Loader2, Plus, RotateCcw, Save, Wallet, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Ban, Check, Loader2, Plus, RotateCcw, Save, Trash2, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormMessage, NativeSelect, SubmitButton } from "@/components/form";
 import { formatPKR } from "@/lib/format";
-import { cancelLoanAction, cashRepaymentAction, clearMonthInstallmentAction, createLoanAction, decideLoanAction, monthInstallmentAction } from "./actions";
+import { cancelLoanAction, cashRepaymentAction, clearMonthInstallmentAction, createLoanAction, decideLoanAction, deleteLoanAction, monthInstallmentAction } from "./actions";
 
 type Option = { id: string; label: string };
 
@@ -127,6 +129,54 @@ export function CancelLoanButton({ id, running, label }: { id: string; running: 
         <Button variant="destructive" disabled={pending} onClick={cancel}>
           {pending && <Loader2 className="size-4 animate-spin" />}
           {label}
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Delete a loan entered by mistake. Disabled once an approved payroll has deducted from it. */
+export function DeleteLoanButton({ id, name, amount, blocked, compact, redirectTo }: {
+  id: string; name: string; amount: number; blocked: boolean; compact?: boolean; redirectTo?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, run] = useTransition();
+  const router = useRouter();
+  const button = (
+    <Button variant={compact ? "ghost" : "outline"} size={compact ? "sm" : "default"} disabled={blocked} aria-label="Delete loan" className={compact ? "text-destructive" : undefined}>
+      <Trash2 className="size-4" /> {!compact && "Delete"}
+    </Button>
+  );
+  if (blocked) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild><span tabIndex={0} className="inline-flex">{button}</span></TooltipTrigger>
+        <TooltipContent>Has payroll repayments — cancel it instead</TooltipContent>
+      </Tooltip>
+    );
+  }
+  const remove = () =>
+    run(async () => {
+      const r = await deleteLoanAction(id);
+      if (r.ok) {
+        toast.success(r.message);
+        setOpen(false);
+        if (redirectTo) router.push(redirectTo);
+      } else toast.error(r.error);
+    });
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{button}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete loan?</DialogTitle>
+          <DialogDescription>
+            The {formatPKR(amount)} loan of {name} is removed with its cash repayments and month entries. This cannot be undone; a copy is kept in the audit log.
+          </DialogDescription>
+        </DialogHeader>
+        <Button variant="destructive" disabled={pending} onClick={remove}>
+          {pending && <Loader2 className="size-4 animate-spin" />}
+          Delete loan
         </Button>
       </DialogContent>
     </Dialog>

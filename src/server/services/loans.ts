@@ -178,6 +178,27 @@ export async function cancelLoan(actor: Actor, id: string, note: string) {
   });
 }
 
+/**
+ * HR/Finance deletes a loan entered by mistake, with its cash repayments and month entries. Not allowed once an
+ * approved payroll has deducted from it (that is payroll history — cancel it instead), nor on their own loan.
+ */
+export async function deleteLoan(actor: Actor, id: string) {
+  assertPermission(actor, "loan.manage", "all");
+  const loan = await db.loan.findUnique({
+    where: { id },
+    include: { repayments: true, monthOverrides: true, employee: { select: { fullName: true, employeeCode: true } } },
+  });
+  if (!loan) throw new NotFoundError("Loan not found.");
+  if (loan.employeeId === actor.employeeId) throw new ForbiddenError("You cannot delete your own loan.");
+  if (loan.repayments.some((r) => r.source === "PAYROLL")) {
+    throw new AppError("This loan has repayments from an approved payroll and cannot be deleted. Cancel it instead.");
+  }
+  await db.$transaction(async (tx) => {
+    await tx.loan.delete({ where: { id } });
+    await recordAudit({ actor, action: "loan.delete", entityType: "Loan", entityId: id, before: loan }, tx);
+  });
+}
+
 // ───────────── Running loans ─────────────
 
 function assertRunning(loan: { status: LoanStatus }) {
@@ -392,6 +413,7 @@ function summarise(l: ListedLoan, open: { year: number; month: number }) {
     repaid: Number(l.amount) - outstanding,
     outstanding: l.status === "CANCELLED" || l.status === "REJECTED" ? 0 : outstanding,
     next,
+    hasPayrollRepayments: l.repayments.some((r) => r.source === "PAYROLL"),
   };
 }
 
@@ -429,6 +451,11 @@ export async function myLoans(actor: Actor): Promise<LoanRow[]> {
 export async function pendingLoanCount(actor: Actor): Promise<number> {
   if (!can(actor, "loan.manage", "all")) return 0;
   return db.loan.count({ where: { status: "PENDING", ...(actor.employeeId ? { NOT: { employeeId: actor.employeeId } } : {}) } });
+}
+
+/** An employee's own pending, running or completed loans (rejected/cancelled ones don't count). */
+export function ownLoanCount(employeeId: string): Promise<number> {
+  return db.loan.count({ where: { employeeId, status: { in: ["PENDING", "APPROVED", "COMPLETED"] } } });
 }
 
 /** Running loans of one employee: balance and the next expected deduction (for the ESS dashboard). */

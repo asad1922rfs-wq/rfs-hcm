@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { HandCoins, Hourglass, Wallet } from "lucide-react";
 import { can, requirePagePermission } from "@/server/auth/session";
 import { db } from "@/server/db";
-import { firstOpenPayrollMonth, listLoans, loanMonthLabel, myLoans, pendingLoanCount, type LoanRow, type LoanView } from "@/server/services/loans";
+import { firstOpenPayrollMonth, listLoans, loanMonthLabel, myLoans, ownLoanCount, pendingLoanCount, type LoanRow, type LoanView } from "@/server/services/loans";
 import { monthKey } from "@/core/loans/schedule";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,12 +12,16 @@ import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private
 import { formatDate, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { DecideLoanButtons, LoanFormDialog } from "./loans-client";
+import { DecideLoanButtons, DeleteLoanButton, LoanFormDialog } from "./loans-client";
 import { LoanStatusBadge } from "./status-badge";
 
 export const metadata = { title: "Loans" };
 
-function LoansTable({ rows, showEmployee, actions }: { rows: LoanRow[]; showEmployee?: boolean; actions?: (r: LoanRow) => React.ReactNode }) {
+function LoansTable({ rows, showEmployee, actions, manage }: {
+  rows: LoanRow[]; showEmployee?: boolean; actions?: (r: LoanRow) => React.ReactNode;
+  /** Set for HR/Finance (loan.manage): shows Delete on other employees' loans. */
+  manage?: { ownEmployeeId: string | null };
+}) {
   if (rows.length === 0) return <EmptyState title="Nothing here" />;
   return (
     <Card className="py-0">
@@ -56,6 +61,9 @@ function LoansTable({ rows, showEmployee, actions }: { rows: LoanRow[]; showEmpl
                 <div className="flex flex-wrap justify-end gap-1">
                   {actions?.(r)}
                   <Link href={`/loans/${r.id}`} className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium hover:bg-accent">Details</Link>
+                  {manage && r.employee.id !== manage.ownEmployeeId && (
+                    <DeleteLoanButton id={r.id} name={r.employee.fullName} amount={r.amount} blocked={r.hasPayrollRepayments} compact />
+                  )}
                 </div>
               </TableCell>
             </TableRow>
@@ -72,6 +80,8 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const canManage = can(actor, "loan.manage", "all");
   const canSeeOthers = can(actor, "loan.read", "team");
   const hasOwn = !!actor.employeeId;
+  // Self-only users see Loans only once they have a loan (same rule as the menu).
+  if (!canSeeOthers && !canManage && (!actor.employeeId || (await ownLoanCount(actor.employeeId)) === 0)) redirect("/dashboard");
 
   const views: { key: "mine" | LoanView; label: string }[] = [
     ...(hasOwn ? [{ key: "mine" as const, label: "My loans" }] : []),
@@ -152,13 +162,14 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
         <LoansTable
           rows={rows}
           showEmployee
+          manage={canManage ? { ownEmployeeId: actor.employeeId } : undefined}
           actions={(r) => (r.employee.id === actor.employeeId ? <span className="self-center text-xs text-muted-foreground">Your request</span> : (
             <DecideLoanButtons id={r.id} name={r.employee.fullName} />
           ))}
         />
       )}
 
-      {(view === "active" || view === "closed") && <LoansTable rows={rows} showEmployee />}
+      {(view === "active" || view === "closed") && <LoansTable rows={rows} showEmployee manage={canManage ? { ownEmployeeId: actor.employeeId } : undefined} />}
     </PrivacyGroup>
   );
 }

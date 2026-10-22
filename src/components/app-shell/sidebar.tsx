@@ -72,6 +72,11 @@ export function SidebarNav({ sections, onNavigate }: { sections: NavSection[]; o
                   >
                     <Icon className="size-4" />
                     {item.label}
+                    {item.badge ? (
+                      <span className="ml-auto rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white tabular-nums" aria-label={`${item.badge} pending`}>
+                        {item.badge > 99 ? "99+" : item.badge}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

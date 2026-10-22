@@ -10,7 +10,7 @@ import { DetailList, EmptyState, StatCard } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 import { formatDate, formatDateTime, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
-import { CancelLoanButton, CashRepaymentDialog, DecideLoanButtons, MonthInstallmentField } from "../loans-client";
+import { CancelLoanButton, DeleteLoanButton, CashRepaymentDialog, DecideLoanButtons, MonthInstallmentField } from "../loans-client";
 import { LoanStatusBadge } from "../status-badge";
 
 export const metadata = { title: "Loan" };
@@ -47,6 +47,9 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
           {canManage && running && <CashRepaymentDialog id={loan.id} outstanding={loan.outstanding} today={today} />}
           {manageSchedule && <CancelLoanButton id={loan.id} running label="Cancel loan" />}
           {loan.status === "PENDING" && loan.isOwn && <CancelLoanButton id={loan.id} running={false} label="Withdraw request" />}
+          {canManage && !loan.isOwn && (
+            <DeleteLoanButton id={loan.id} name={loan.employee.fullName} amount={loan.amount} blocked={loan.hasPayrollRepayments} redirectTo="/loans" />
+          )}
         </div>
       </div>
 
