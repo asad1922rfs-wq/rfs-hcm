@@ -305,8 +305,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
           status: "LEAVE", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
           isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
         };
-      } else if (flexible && !isOffDay && date < today && !enforceMinimum(date)) {
-        // Remote, before flexible hours started: the working day is credited (no sign-ins were required).
+      } else if (flexible && !isOffDay && date <= today && !enforceMinimum(date)) {
+        // Remote, before flexible hours started (today included): the working day is credited (no sign-ins were required).
         data = {
           status: "PRESENT", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
           isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
