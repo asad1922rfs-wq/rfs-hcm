@@ -287,6 +287,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       let result = flexible
         ? computeFlexibleDay(effective, enforceMinimum(date) && !isOffDay, inProgress)
         : computeDay(date, effective, rule, isOffDay, inProgress);
+      // Remote before flexible hours start: a working day is a full credited day, punches or not (punches stay stored).
+      if (flexible && !isOffDay && !enforceMinimum(date) && date <= today) result = null;
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
       if (!flexible && result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
