@@ -78,6 +78,13 @@ describe("field encryption", () => {
 describe("validation", () => {
   const base = { employeeCode: "RFS-0001", fullName: "Ayesha Khan", joiningDate: "2026-01-05", employmentType: "PERMANENT" };
 
+  it("defaults work mode to office and requires a title for a new designation", () => {
+    expect(employeeSchema.parse(base).workMode).toBe("OFFICE");
+    expect(employeeSchema.parse({ ...base, workMode: "REMOTE" }).workMode).toBe("REMOTE");
+    expect(employeeSchema.safeParse({ ...base, designationId: "__new__", newDesignation: " " }).success).toBe(false);
+    expect(employeeSchema.parse({ ...base, designationId: "__new__", newDesignation: "QA Lead" }).newDesignation).toBe("QA Lead");
+  });
+
   it("accepts a minimal employee and treats blanks as missing", () => {
     const parsed = employeeSchema.parse({ ...base, email: "", phone: "", departmentId: "" });
     expect(parsed.email).toBeUndefined();

@@ -138,6 +138,8 @@ model Employee {
   status         EmploymentStatus @default(ACTIVE)
   /// User ID enrolled on the biometric device (matches device punches to this employee)
   deviceUserId   String?          @unique
+  /// REMOTE employees sign in and out from their dashboard (machine punches still count)
+  workMode       WorkMode         @default(OFFICE)
 
   departmentId  String?
   department    Department?  @relation(fields: [departmentId], references: [id])
@@ -288,10 +290,17 @@ model AuditLog {
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Attendance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+enum WorkMode {
+  OFFICE
+  REMOTE
+}
+
 enum PunchSource {
   IMPORT
   AGENT
   MANUAL
+  /// Sign in / out from the dashboard by a remote (work from home) employee
+  WEB
 }
 
 /// Raw biometric punch exactly as received. Never updated or deleted; duplicates are rejected by the unique key.

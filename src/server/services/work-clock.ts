@@ -13,12 +13,14 @@ export type WorkClock = {
   signIn: string | null;
   signOut: string | null;
   offDay: string | null; // "Weekend" or the holiday name
+  /** Remote (work from home) employee: signs in and out from the dashboard. */
+  remote: boolean;
 };
 
 /** Today's sign-in/out for the employee's current work day (a 3 PM–12 AM shift still counts at 12:30 AM). */
 export async function todayWorkClock(employeeId: string): Promise<WorkClock | null> {
   const [employee, defaultShift, company] = await Promise.all([
-    db.employee.findUnique({ where: { id: employeeId }, select: { shift: { include: { dayOverrides: true } } } }),
+    db.employee.findUnique({ where: { id: employeeId }, select: { workMode: true, shift: { include: { dayOverrides: true } } } }),
     db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } }),
     db.company.findFirst({ select: { weekendDays: true } }),
   ]);
@@ -42,5 +44,6 @@ export async function todayWorkClock(employeeId: string): Promise<WorkClock | nu
     signIn: day?.firstIn?.toISOString() ?? null,
     signOut: day?.lastOut?.toISOString() ?? null,
     offDay: holidays.get(workDate) ?? (isWeekend ? "Weekend" : null),
+    remote: employee?.workMode === "REMOTE",
   };
 }

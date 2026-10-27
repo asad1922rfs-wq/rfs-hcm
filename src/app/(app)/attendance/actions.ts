@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/server/auth/session";
 import { runAction } from "@/server/action";
-import { importPunchFile } from "@/server/services/attendance";
+import { importPunchFile, recordWebPunch } from "@/server/services/attendance";
 import { AppError, type ActionResult } from "@/server/errors";
 
 export type ImportSummary = {
@@ -22,5 +22,14 @@ export async function importPunchesAction(_prev: ActionResult<ImportSummary> | n
       ok: true,
       data: { fileName: r.fileName, rowsRead: r.rowsRead, inserted: r.inserted, duplicates: r.duplicates, invalid: r.invalid, unmatchedIds: r.unmatchedIds, errors: r.errors },
     };
+  });
+}
+
+export async function webPunchAction(): Promise<ActionResult> {
+  return runAction(async () => {
+    await recordWebPunch(await requireActor());
+    revalidatePath("/dashboard");
+    revalidatePath("/attendance");
+    return { ok: true, message: "Recorded." };
   });
 }

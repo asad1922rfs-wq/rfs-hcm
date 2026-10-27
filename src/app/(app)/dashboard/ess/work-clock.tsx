@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Timer } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { LogIn, LogOut, Timer } from "lucide-react";
+import { toast } from "sonner";
 import type { WorkClock } from "@/server/services/work-clock";
+import { Button } from "@/components/ui/button";
+import { webPunchAction } from "@/app/(app)/attendance/actions";
 
 const time12 = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Karachi" });
 const hm = (minutes: number) => `${Math.floor(minutes / 60)}h ${String(Math.floor(minutes % 60)).padStart(2, "0")}m`;
 
-/** Today's working time, counting up live from the sign-in until the sign-out. */
-export function WorkClockPanel({ clock }: { clock: WorkClock }) {
+/** Today's working time, counting up live from the sign-in until the sign-out. Remote employees sign in/out here. */
+export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; canPunch?: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!clock.signIn || clock.signOut) return;
@@ -41,6 +44,38 @@ export function WorkClockPanel({ clock }: { clock: WorkClock }) {
           </p>
         </>
       )}
+      {canPunch && <WebPunchButton signedIn={!!clock.signIn} signedOutAt={clock.signOut} worked={worked} />}
+    </div>
+  );
+}
+
+/**
+ * Every click records a punch at the server's time: the first of the day is the sign-in, the last the sign-out
+ * (so signing out again after a sign-out moves the sign-out to now).
+ */
+function WebPunchButton({ signedIn, signedOutAt, worked }: { signedIn: boolean; signedOutAt: string | null; worked: number }) {
+  const [pending, start] = useTransition();
+  const signingOut = signedIn;
+  return (
+    <div className="mt-3 grid gap-1.5">
+      <Button
+        size="lg"
+        className="w-full"
+        variant={signingOut ? "outline" : "default"}
+        disabled={pending}
+        onClick={() => {
+          if (signingOut && !confirm(`Sign out now? Worked ${signedOutAt ? hm((Date.now() - Date.parse(signedOutAt)) / 60_000 + worked) : hm(worked)}`)) return;
+          start(async () => {
+            const r = await webPunchAction();
+            if (r.ok) toast.success(signingOut ? "Signed out." : "Signed in.");
+            else toast.error(r.error);
+          });
+        }}
+      >
+        {signingOut ? <LogOut className="size-4" /> : <LogIn className="size-4" />}
+        {!signedIn ? "Sign in" : signedOutAt ? "Sign out again" : "Sign out"}
+      </Button>
+      {signedOutAt && <p className="text-center text-xs text-muted-foreground">Signed out at {time12(signedOutAt)} · signing out again moves it to now</p>}
     </div>
   );
 }

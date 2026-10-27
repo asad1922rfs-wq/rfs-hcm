@@ -18,7 +18,7 @@ export default async function NewEmployeePage() {
         mode="create"
         action={createEmployeeAction}
         options={options}
-        defaults={{ employeeCode, joiningDate: toDateOnlyString(todayInPKT()), employmentType: "PERMANENT" }}
+        defaults={{ employeeCode, joiningDate: toDateOnlyString(todayInPKT()), employmentType: "PERMANENT", workMode: "OFFICE" }}
         canSetSalary={can(actor, "salary.manage", "all")}
         canSetBank={can(actor, "bank.manage", "all")}
         cancelHref="/employees"

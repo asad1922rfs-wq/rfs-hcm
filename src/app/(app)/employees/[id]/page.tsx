@@ -24,6 +24,7 @@ import { BankDialog, RevealBank, SalaryRevisionDialog, StatusDialog } from "./pa
 import { DeleteEmployeesDialog } from "../delete-dialog";
 import { DocumentsPanel } from "./documents";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
+import { WORK_MODE_LABELS } from "@/core/attendance/web-punch";
 
 export const metadata = { title: "Employee profile" };
 
@@ -115,6 +116,7 @@ export default async function EmployeeProfilePage({
                   },
                   { label: "Shift", value: e.shift ? `${e.shift.name} · ${formatMinuteOfDay(e.shift.startMinute)} – ${formatMinuteOfDay(e.shift.endMinute)}` : undefined },
                   { label: "Biometric user ID", value: e.deviceUserId },
+                  { label: "Work mode", value: WORK_MODE_LABELS[e.workMode] },
                   ...(e.exitDate ? [{ label: "Exit date", value: formatDate(e.exitDate) }] : []),
                 ]}
               />

@@ -100,7 +100,7 @@ export function EssDashboard({ data, canImport, showApprovals, canRequestAttenda
             <Link href={s.isSelf ? "/me" : `/employees/${s.id}`} className="mt-1 flex items-center gap-1 text-sm text-primary hover:underline">
               <Info className="size-3.5" /> {s.isSelf ? "My info" : "Employee info"}
             </Link>
-            {data.workClock && <WorkClockPanel clock={data.workClock} />}
+            {data.workClock && <WorkClockPanel clock={data.workClock} canPunch={s.isSelf && data.workClock.remote} />}
           </div>
           <div className="grid grid-cols-2 border-t text-center text-xs text-muted-foreground">
             <div className="flex flex-col items-center gap-2 border-r px-2 py-4">

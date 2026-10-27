@@ -91,6 +91,26 @@ export async function saveDesignation(actor: Actor, input: { id?: string; title:
   }
 }
 
+/**
+ * The active-or-not designation with this title (case-insensitive, trimmed), or a new one. Used when a title is
+ * added straight from the employee form; the caller has already checked employee.manage.
+ */
+export async function findOrCreateDesignation(actor: Actor, title: string) {
+  const wanted = title.trim().replace(/\s+/g, " ");
+  const existing = (await db.designation.findMany({ select: { id: true, title: true } })).find((d) => d.title.trim().toLowerCase() === wanted.toLowerCase());
+  if (existing) return existing.id;
+  try {
+    const created = await db.designation.create({ data: { title: wanted, isActive: true } });
+    await recordAudit({ actor, action: "designation.create", entityType: "Designation", entityId: created.id, after: created });
+    return created.id;
+  } catch (err) {
+    // Created by someone else at the same moment: use theirs.
+    const again = await db.designation.findFirst({ where: { title: wanted }, select: { id: true } });
+    if (again) return again.id;
+    throw err;
+  }
+}
+
 // ───────────── Shifts ─────────────
 
 export function listShifts() {

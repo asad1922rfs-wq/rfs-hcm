@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseDateOnly } from "./dates";
+import { WORK_MODES } from "@/core/attendance/web-punch";
 
 // Shared input schemas. Used by server actions (authoritative) and by forms for field hints.
 
@@ -34,6 +35,9 @@ export const money = (label: string) =>
     .max(100_000_000, `${label} is too large.`)
     .refine((n) => Number.isInteger(Math.round(n * 100)), `${label} can have at most 2 decimal places.`);
 
+export { WORK_MODES };
+/** Designation select value meaning "create the title typed in newDesignation". */
+export const NEW_DESIGNATION = "__new__";
 export const EMPLOYMENT_TYPES = ["PERMANENT", "PROBATION", "CONTRACT", "INTERN", "PART_TIME"] as const;
 export const EMPLOYMENT_STATUSES = ["ACTIVE", "INACTIVE", "RESIGNED", "TERMINATED"] as const;
 export const GENDERS = ["MALE", "FEMALE", "OTHER"] as const;
@@ -54,6 +58,13 @@ export const employeeSchema = z.object({
   shiftId: optionalId,
   managerId: optionalId,
   deviceUserId: z.preprocess(blank, z.string().trim().max(20).regex(/^[0-9A-Za-z]+$/, "Letters and numbers only.").optional()),
+  workMode: z.preprocess(blank, z.enum(WORK_MODES, { message: "Choose a work mode." }).default("OFFICE")),
+  /** Title typed after choosing "+ Add new designation…" (designationId = NEW_DESIGNATION). */
+  newDesignation: optionalText(100),
+}).superRefine((v, ctx) => {
+  if (v.designationId === NEW_DESIGNATION && !v.newDesignation) {
+    ctx.addIssue({ code: "custom", path: ["newDesignation"], message: "Enter the new designation title." });
+  }
 });
 export type EmployeeInput = z.infer<typeof employeeSchema>;
 

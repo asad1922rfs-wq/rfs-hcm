@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE `Employee` ADD COLUMN `workMode` ENUM('OFFICE', 'REMOTE') NOT NULL DEFAULT 'OFFICE';
+
+-- AlterTable
+ALTER TABLE `RawPunch` MODIFY `source` ENUM('IMPORT', 'AGENT', 'MANUAL', 'WEB') NOT NULL;

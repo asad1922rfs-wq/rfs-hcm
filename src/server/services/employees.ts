@@ -9,7 +9,8 @@ import { assertEmployeeAccess, canAccessEmployee, scopedEmployeeWhere, teamEmplo
 import { todayInPKT } from "@/lib/dates";
 import { relinkEmployeePunches } from "@/server/services/attendance";
 import { removeEmployeeDocumentFiles } from "@/server/services/documents";
-import type { BankInput, EmployeeInput, SalaryInput } from "@/lib/validation";
+import { NEW_DESIGNATION, type BankInput, type EmployeeInput, type SalaryInput } from "@/lib/validation";
+import { findOrCreateDesignation } from "@/server/services/organisation";
 
 // ───────────── Reads ─────────────
 
@@ -172,7 +173,15 @@ function employeeData(input: EmployeeInput) {
     shiftId: input.shiftId ?? null,
     managerId: input.managerId ?? null,
     deviceUserId: input.deviceUserId ?? null,
+    workMode: input.workMode,
   };
+}
+
+/** "+ Add new designation…" on the form: use the existing title or create it, then assign it. */
+async function withDesignation(actor: Actor, input: EmployeeInput): Promise<EmployeeInput> {
+  if (input.designationId !== NEW_DESIGNATION) return input;
+  if (!input.newDesignation) throw new AppError("Enter the new designation title.");
+  return { ...input, designationId: await findOrCreateDesignation(actor, input.newDesignation) };
 }
 
 function translateUniqueError(err: unknown): never {
@@ -194,6 +203,7 @@ export async function createEmployee(
   assertPermission(actor, "employee.manage", "all");
   if (extras.salary) assertPermission(actor, "salary.manage", "all");
   if (extras.bank) assertPermission(actor, "bank.manage", "all");
+  input = await withDesignation(actor, input);
 
   let created;
   try {
@@ -232,6 +242,7 @@ export async function createEmployee(
 
 export async function updateEmployee(actor: Actor, employeeId: string, input: EmployeeInput, emergencyContacts: EmergencyContactInput[]) {
   assertPermission(actor, "employee.manage", "all");
+  input = await withDesignation(actor, input);
   const before = await db.employee.findUnique({ where: { id: employeeId }, include: { emergencyContacts: true } });
   if (!before) throw new NotFoundError("Employee not found.");
 

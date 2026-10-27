@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,8 @@ import { Field, FormMessage, NativeSelect, SubmitButton } from "@/components/for
 import { RowEditor } from "@/components/row-editor";
 import { humanize } from "@/components/common";
 import { formatMinuteOfDay } from "@/lib/format";
-import { EMPLOYMENT_TYPES, GENDERS } from "@/lib/validation";
+import { EMPLOYMENT_TYPES, GENDERS, NEW_DESIGNATION, WORK_MODES } from "@/lib/validation";
+import { WORK_MODE_LABELS } from "@/core/attendance/web-punch";
 import type { ActionResult } from "@/server/errors";
 
 export type EmployeeFormOptions = {
@@ -20,7 +21,7 @@ export type EmployeeFormOptions = {
 
 export type EmployeeFormDefaults = Partial<Record<
   | "employeeCode" | "fullName" | "email" | "phone" | "gender" | "dateOfBirth" | "cnic" | "address" | "joiningDate"
-  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId",
+  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId" | "workMode",
   string
 >> & { contacts?: { name: string; relationship: string; phone: string }[] };
 
@@ -37,6 +38,7 @@ type Props = {
 
 export function EmployeeForm({ action, options, defaults, mode, excludeManagerId, canSetSalary, canSetBank, cancelHref }: Props) {
   const [state, formAction] = useActionState(action, null);
+  const [newDesignation, setNewDesignation] = useState(false);
   const fe = state && !state.ok ? (state.fieldErrors ?? {}) : {};
   const defaultShift = defaults.shiftId ?? options.shifts.find((s) => s.isDefault)?.id ?? "";
 
@@ -83,11 +85,15 @@ export function EmployeeForm({ action, options, defaults, mode, excludeManagerId
             </NativeSelect>
           </Field>
           <Field label="Designation" name="designationId" errors={fe.designationId}>
-            <NativeSelect id="f-designationId" name="designationId" defaultValue={defaults.designationId ?? ""}>
+            <NativeSelect id="f-designationId" name="designationId" defaultValue={defaults.designationId ?? ""} onChange={(e) => setNewDesignation(e.target.value === NEW_DESIGNATION)}>
               <option value="">—</option>
               {options.designations.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              <option value={NEW_DESIGNATION}>+ Add new designation…</option>
             </NativeSelect>
           </Field>
+          {newDesignation && (
+            <Field label="New designation title" name="newDesignation" errors={fe.newDesignation} required maxLength={100} autoFocus hint="Added to Departments & titles if it is not there yet" />
+          )}
           <Field label="Reporting manager" name="managerId" errors={fe.managerId}>
             <NativeSelect id="f-managerId" name="managerId" defaultValue={defaults.managerId ?? ""}>
               <option value="">—</option>
@@ -112,6 +118,11 @@ export function EmployeeForm({ action, options, defaults, mode, excludeManagerId
             hint="The user number enrolled on the ZKTeco device"
             inputMode="numeric"
           />
+          <Field label="Work mode" name="workMode" errors={fe.workMode} required hint="Remote employees sign in and out from their dashboard">
+            <NativeSelect id="f-workMode" name="workMode" defaultValue={defaults.workMode ?? "OFFICE"}>
+              {WORK_MODES.map((m) => <option key={m} value={m}>{WORK_MODE_LABELS[m]}</option>)}
+            </NativeSelect>
+          </Field>
         </CardContent>
       </Card>
 

@@ -7,6 +7,7 @@ import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { applyLateWaiver } from "@/core/attendance/waiver";
+import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId } from "@/core/attendance/web-punch";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
@@ -115,12 +116,10 @@ export async function ingestPunches(
 
 /** Attach previously unmatched punches when an employee's biometric user ID is set or changed. */
 export async function relinkEmployeePunches(employeeId: string, deviceUserId: string | null) {
-  await db.rawPunch.updateMany({ where: { employeeId, ...(deviceUserId ? { NOT: { deviceUserId } } : {}) }, data: { employeeId: null } });
-  if (!deviceUserId) {
-    await db.attendanceDay.deleteMany({ where: { employeeId } });
-    return;
-  }
-  await db.rawPunch.updateMany({ where: { deviceUserId, employeeId: null }, data: { employeeId } });
+  // Web sign-ins belong to the employee whatever their biometric ID, so they stay linked.
+  await db.rawPunch.updateMany({ where: { employeeId, source: { not: "WEB" }, ...(deviceUserId ? { NOT: { deviceUserId } } : {}) }, data: { employeeId: null } });
+  if (!deviceUserId) await db.attendanceDay.deleteMany({ where: { employeeId } });
+  else await db.rawPunch.updateMany({ where: { deviceUserId, employeeId: null, source: { not: "WEB" } }, data: { employeeId } });
   const range = await db.rawPunch.aggregate({ where: { employeeId }, _min: { punchedAt: true }, _max: { punchedAt: true } });
   if (range._min.punchedAt && range._max.punchedAt) {
     await recomputeAttendance({
@@ -129,6 +128,41 @@ export async function relinkEmployeePunches(employeeId: string, deviceUserId: st
       to: toDateOnlyString(range._max.punchedAt),
     });
   }
+}
+
+// ───────────── Web sign in / out (remote employees) ─────────────
+
+/**
+ * Record a sign-in or sign-out from the dashboard at the server's current time. The first punch of the work day
+ * is the check-in and the last the check-out, exactly as with machine punches.
+ */
+export async function recordWebPunch(actor: Actor) {
+  if (!actor.employeeId) throw new AppError("Your account is not linked to an employee record.");
+  const employee = await db.employee.findUnique({
+    where: { id: actor.employeeId },
+    select: { id: true, workMode: true, status: true, deviceUserId: true },
+  });
+  if (!employee) throw new AppError("Your employee record was not found.");
+  const now = new Date();
+  const last = await db.rawPunch.findFirst({ where: { employeeId: employee.id }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } });
+  const blocked = webPunchBlockReason(employee, last && last.punchedAt <= now ? last.punchedAt : null, now);
+  if (blocked) throw new AppError(blocked);
+
+  const punchedAt = new Date(Math.floor(now.getTime() / 1000) * 1000);
+  const punch = await db.rawPunch.create({
+    data: {
+      source: "WEB",
+      deviceSerial: "WEB",
+      deviceUserId: webPunchDeviceUserId(employee),
+      punchedAt,
+      deviceLocal: pktLocalString(punchedAt),
+      employeeId: employee.id,
+    },
+  });
+  const date = toDateOnlyString(todayInPKT(punchedAt));
+  await recomputeAttendance({ employeeIds: [employee.id], from: addDaysIso(date, -1), to: date });
+  await recordAudit({ actor, action: "attendance.web_punch", entityType: "RawPunch", entityId: punch.id, after: { employeeId: employee.id, punchedAt } });
+  return { punchedAt };
 }
 
 // ───────────── Recalculation ─────────────
@@ -156,11 +190,13 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     holidayDatesBetween(opts.from, to),
     db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } }),
     db.employee.findMany({
-      where: { deviceUserId: { not: null }, ...(opts.employeeIds ? { id: { in: opts.employeeIds } } : {}) },
+      // Remote employees may have no biometric ID — their web sign-ins are linked directly.
+      where: { OR: [{ deviceUserId: { not: null } }, { workMode: "REMOTE" }], ...(opts.employeeIds ? { id: { in: opts.employeeIds } } : {}) },
       select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
     }),
-    db.rawPunch.findFirst({ orderBy: { punchedAt: "desc" }, select: { punchedAt: true } }),
-    db.rawPunch.findFirst({ orderBy: { punchedAt: "asc" }, select: { punchedAt: true } }),
+    // Device coverage comes from machine punches only: one remote sign-in does not mean the device has synced.
+    db.rawPunch.findFirst({ where: { source: { not: "WEB" } }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } }),
+    db.rawPunch.findFirst({ where: { source: { not: "WEB" } }, orderBy: { punchedAt: "asc" }, select: { punchedAt: true } }),
   ]);
   const weekendDays = weekendOf(company);
   const start = attendanceStartOf(company);
