@@ -99,9 +99,28 @@ describe("computeDay", () => {
     expect(r).toMatchObject({ status: "LATE", lateMinutes: 16 });
   });
 
-  it("leaving before 11 PM is early", () => {
+  it("leaving 30 min early (6 hours or more worked) stays Early, not a half day", () => {
     const r = computeDay("2026-10-01", [pkt("2026-10-01 14:00:00"), pkt("2026-10-01 22:30:00")], SHIFT, false)!;
     expect(r).toMatchObject({ status: "EARLY", earlyLeaveMinutes: 30 });
+  });
+
+  it("half day thresholds: 4:30 worked is a half day, 4:29 stays early", () => {
+    expect(computeDay("2026-10-01", [pkt("2026-10-01 14:00:00"), pkt("2026-10-01 18:30:00")], SHIFT, false)!).toMatchObject({ status: "HALF_DAY", workedMinutes: 270 });
+    expect(computeDay("2026-10-01", [pkt("2026-10-01 14:00:00"), pkt("2026-10-01 18:29:00")], SHIFT, false)!).toMatchObject({ status: "EARLY", workedMinutes: 269 });
+  });
+
+  it("a full shift worked that still left early is early, not a half day", () => {
+    // 1 PM - 10:30 PM: 9:30 worked, 30 minutes before shift end.
+    expect(computeDay("2026-10-01", [pkt("2026-10-01 13:00:00"), pkt("2026-10-01 22:30:00")], SHIFT, false)!.status).toBe("EARLY");
+  });
+
+  it("a half day wins over late", () => {
+    const r = computeDay("2026-10-01", [pkt("2026-10-01 14:30:00"), pkt("2026-10-01 20:00:00")], SHIFT, false)!;
+    expect(r).toMatchObject({ status: "HALF_DAY", lateMinutes: 30 });
+  });
+
+  it("an off day is never a half day", () => {
+    expect(computeDay("2026-10-04", [pkt("2026-10-04 14:00:00"), pkt("2026-10-04 19:00:00")], SHIFT, true)!.status).toBe("PRESENT");
   });
 
   it("checking out after midnight counts the full time", () => {
@@ -183,8 +202,15 @@ describe("excused adjustments", () => {
   it("an early check-out is excused when the check-out was edited", () => {
     const adj = { checkIn: null, checkOut: pkt("2026-10-09 21:00:00") };
     const day = computeDay(d, applyAdjustment([pkt("2026-10-09 15:05:00")], adj), FRIDAY, false)!;
-    expect(day.status).toBe("EARLY");
+    expect(day.status).toBe("HALF_DAY");
     expect(excuseAdjusted(day, adj, FRIDAY)).toMatchObject({ status: "PRESENT", earlyLeaveMinutes: 0 });
+  });
+
+  it("an excused day never becomes a half day (only the check-in edited, early machine check-out)", () => {
+    const adj = { checkIn: pkt("2026-10-09 15:00:00"), checkOut: null };
+    const day = computeDay(d, applyAdjustment([pkt("2026-10-09 20:30:00")], adj), FRIDAY, false)!;
+    expect(day.status).toBe("HALF_DAY");
+    expect(excuseAdjusted(day, adj, FRIDAY).status).toBe("EARLY");
   });
 
   it("an edited check-in is never late", () => {

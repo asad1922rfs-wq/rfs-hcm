@@ -235,7 +235,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
 
   // Approved late waivers (attendance requests): that day's Late counts as Present.
   const waiverRows = await db.attendanceRequest.findMany({
-    where: { employeeId: { in: employees.map((e) => e.id) }, status: "APPROVED", workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
+    where: { employeeId: { in: employees.map((e) => e.id) }, status: "APPROVED", NOT: { reasonKey: "HALF_DAY" }, workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
     select: { employeeId: true, workDate: true },
   });
   const waived = new Set(waiverRows.map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));

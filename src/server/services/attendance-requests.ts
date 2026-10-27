@@ -8,7 +8,7 @@ import { canAccessEmployee, scopedEmployeeWhere } from "@/server/auth/scope";
 import { FALLBACK_SHIFT, recomputeAttendance } from "@/server/services/attendance";
 import { isPayrollLockedFor } from "@/server/services/payroll-lock";
 import { addDaysIso, ruleForDate } from "@/core/attendance/engine";
-import { checkWaiverHours, MAX_WAIVER_NOTE, MONTHLY_WAIVER_LIMIT, requiredShiftMinutes, waiverReasonText, waiverRequestsLeft } from "@/core/attendance/waiver";
+import { checkRequest, MAX_WAIVER_NOTE, MONTHLY_WAIVER_LIMIT, requiredShiftMinutes, waiverReasonText, waiverRequestsLeft } from "@/core/attendance/waiver";
 import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf } from "@/server/json-fields";
 
@@ -93,7 +93,7 @@ export async function decideLateWaiver(actor: Actor, id: string, approve: boolea
   if (approve && (await isPayrollLockedFor(date))) throw new AppError("Payroll for that month is already approved, so its attendance is locked. Reject this request instead.");
 
   const { day, requiredMinutes } = await dayHours(r.employeeId, date);
-  const check = checkWaiverHours(day, requiredMinutes);
+  const check = checkRequest(r.reasonKey, day, requiredMinutes);
   if (approve && !check.ok) throw new AppError(check.message);
 
   await db.attendanceRequest.update({
@@ -141,7 +141,7 @@ export async function attendanceApprovalQueue(actor: Actor) {
   return Promise.all(
     rows.map(async (r) => {
       const { day, requiredMinutes } = await dayHours(r.employeeId, iso(r.workDate));
-      const check = checkWaiverHours(day, requiredMinutes);
+      const check = checkRequest(r.reasonKey, day, requiredMinutes);
       return {
         ...r,
         day: day ? { status: day.status, firstIn: day.firstIn, lastOut: day.lastOut, workedMinutes: day.workedMinutes, lateMinutes: day.lateMinutes } : null,
@@ -156,6 +156,18 @@ export async function pendingAttendanceRequestCount(actor: Actor) {
   if (!can(actor, "attendance.approve", "team")) return 0;
   const scope = await scopedEmployeeWhere(actor, "attendance.approve");
   return db.attendanceRequest.count({ where: { status: "PENDING", employee: { AND: [scope, actor.employeeId ? { NOT: { id: actor.employeeId } } : {}] } } });
+}
+
+/** Approved half-day requests between two dates: employee id → set of "YYYY-MM-DD". Those half days are not deducted. */
+export async function approvedHalfDayDates(employeeIds: string[], from: string, to: string): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (!employeeIds.length) return out;
+  const rows = await db.attendanceRequest.findMany({
+    where: { employeeId: { in: employeeIds }, status: "APPROVED", reasonKey: "HALF_DAY", workDate: { gte: d0(from), lte: d0(to) } },
+    select: { employeeId: true, workDate: true },
+  });
+  for (const r of rows) (out.get(r.employeeId) ?? out.set(r.employeeId, new Set()).get(r.employeeId)!).add(iso(r.workDate));
+  return out;
 }
 
 /** Months an employee can currently request for: this month and last month, unless payroll has locked them. */

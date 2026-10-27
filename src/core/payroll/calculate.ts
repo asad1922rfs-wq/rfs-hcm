@@ -2,7 +2,7 @@
 //
 // Confirmed RFS rules (docs/ARCHITECTURE.md §0):
 //   * Payroll month = calendar month. Per-day rate = monthly gross ÷ days in that month.
-//   * Each ABSENT day deducts one day.
+//   * Each ABSENT day deducts one day. Each HALF_DAY deducts half a day, unless a half-day request was approved for it.
 //   * Late arrivals and missing punches together: every 3 deduct one day.
 //   * Overtime is not paid. No income tax yet.
 // Defaults applied where RFS gave no rule (flagged in the summary to HR):
@@ -37,6 +37,8 @@ export type PayInput = {
   adjustments: readonly { kind: "EARNING" | "DEDUCTION"; label: string; amount: number }[];
   /** Dates of approved UNPAID leave (paid leave is not deducted). */
   unpaidLeaveDates?: ReadonlySet<string>;
+  /** Dates with an approved half-day attendance request: those half days are not deducted. */
+  approvedHalfDayDates?: ReadonlySet<string>;
   /** Loan installments HR entered for this month, oldest loan first (src/core/loans/schedule.ts loanDueFor). */
   loans?: readonly LoanDue[];
 };
@@ -51,6 +53,9 @@ export type PayResult = {
   lateCount: number;
   missingPunchCount: number;
   lateDeductionDays: number;
+  /** Half days deducted at 0.5 day each (approved half days are not). */
+  halfDays: number;
+  approvedHalfDays: number;
   paidLeaveDays: number;
   unpaidLeaveDays: number;
   notSyncedDays: number;
@@ -83,7 +88,7 @@ export function calculatePay(input: PayInput): PayResult {
   const perDayRate = Math.round((gross / daysInMonth) * 100) / 100;
 
   let employedDays = 0, presentDays = 0, absentDays = 0, lateCount = 0, missingPunchCount = 0, notSyncedDays = 0, remainingDays = 0;
-  let paidLeaveDays = 0, unpaidLeaveDays = 0;
+  let paidLeaveDays = 0, unpaidLeaveDays = 0, halfDays = 0, approvedHalfDays = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const date = iso(input.year, input.month, d);
     if (date < from || date > to) continue;
@@ -105,9 +110,13 @@ export function calculatePay(input: PayInput): PayResult {
         missingPunchCount++;
         presentDays++;
         break;
+      case "HALF_DAY":
+        if (input.approvedHalfDayDates?.has(date)) approvedHalfDays++;
+        else halfDays++;
+        presentDays++;
+        break;
       case "PRESENT":
       case "EARLY":
-      case "HALF_DAY":
       case "SHORT_DAY":
         presentDays++;
         break;
@@ -142,6 +151,10 @@ export function calculatePay(input: PayInput): PayResult {
 
   if (unpaidLeaveDays > 0 && gross > 0) {
     lines.push({ kind: "DEDUCTION", code: "UNPAID_LEAVE", label: `Unpaid leave ${plural(unpaidLeaveDays, "day")} × ${perDayRate.toFixed(2)}`, amount: rupees(unpaidLeaveDays * perDayRate) });
+  }
+
+  if (halfDays > 0 && gross > 0) {
+    lines.push({ kind: "DEDUCTION", code: "HALF_DAY", label: `Half day ${halfDays} × 0.5 × ${perDayRate.toFixed(2)}`, amount: rupees(halfDays * 0.5 * perDayRate) });
   }
 
   const lateDeductionDays = Math.floor((lateCount + missingPunchCount) / LATES_PER_DEDUCTION_DAY);
@@ -180,7 +193,7 @@ export function calculatePay(input: PayInput): PayResult {
   if (remainingDays > 0) warnings.push(`Month not finished: ${plural(remainingDays, "day")} still to come are counted as paid`);
 
   return {
-    daysInMonth, employedDays, gross, perDayRate, presentDays, absentDays, lateCount, missingPunchCount, lateDeductionDays, paidLeaveDays, unpaidLeaveDays,
+    daysInMonth, employedDays, gross, perDayRate, presentDays, absentDays, lateCount, missingPunchCount, lateDeductionDays, halfDays, approvedHalfDays, paidLeaveDays, unpaidLeaveDays,
     notSyncedDays, remainingDays, lines, earnings, deductions, netPay, warnings,
   };
 }

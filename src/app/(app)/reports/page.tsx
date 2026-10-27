@@ -163,6 +163,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <TableHead className="text-right">Late</TableHead>
                 <TableHead className="text-right">Early</TableHead>
                 <TableHead className="text-right">Missing</TableHead>
+                <TableHead className="text-right">Half day</TableHead>
                 <TableHead className="text-right">Absent</TableHead>
                 <TableHead className="text-right">Leave</TableHead>
                 <TableHead className="hidden text-right sm:table-cell">Worked h</TableHead>
@@ -184,13 +185,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                   <TableCell className="text-right tabular-nums">{r.late}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.early}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.missing}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.halfDay}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.absent}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.leave}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{(r.workedMinutes / 60).toFixed(1)}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.lateMinutes}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.lateAndMissing}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.lateDeductionDays}</TableCell>
-                  <TableCell className={`text-right font-semibold tabular-nums ${r.totalDeductionDays ? "text-destructive" : ""}`} title={`${r.absent} absent + ${r.lateDeductionDays} for lates`}>{r.totalDeductionDays}</TableCell>
+                  <TableCell className={`text-right font-semibold tabular-nums ${r.totalDeductionDays ? "text-destructive" : ""}`} title={`${r.absent} absent + ${r.lateDeductionDays} for lates + ${r.halfDayDeductionDays} for half days`}>{r.totalDeductionDays}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

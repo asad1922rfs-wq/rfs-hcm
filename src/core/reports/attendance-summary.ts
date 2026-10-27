@@ -4,7 +4,8 @@
 //   * "Present" is every day the employee attended: PRESENT, LATE, EARLY, HALF_DAY, SHORT_DAY and MISSING.
 //     The per-status columns break that total down.
 //   * Late arrivals and missing punches together: every 3 deduct one day.
-//   * Each absent day deducts one full day; total deduction days = absent + late deduction days.
+//   * Each absent day deducts one full day; each half day half a day unless its half-day request was approved.
+//     Total deduction days = absent + late deduction days + 0.5 ×unapproved half days.
 //   * Only days inside [from, to] are counted, so a stray record outside the month never leaks in.
 
 import { LATES_PER_DEDUCTION_DAY, type AttendanceStatusCode } from "@/core/payroll/calculate";
@@ -23,6 +24,9 @@ export type AttendanceSummary = {
   early: number;
   missing: number;
   halfOrShort: number;
+  /** Half days (approved included); halfDayDeductionDays = 0.5 ×the half days without an approved request. */
+  halfDay: number;
+  halfDayDeductionDays: number;
   absent: number;
   leave: number;
   workedMinutes: number;
@@ -30,13 +34,13 @@ export type AttendanceSummary = {
   /** Late arrivals + missing punches — the count the late-deduction rule applies to. */
   lateAndMissing: number;
   lateDeductionDays: number;
-  /** Absent days + late deduction days: the days payroll deducts for attendance. */
+  /** Absent days + late deduction days + half-day deduction days: the days payroll deducts for attendance. */
   totalDeductionDays: number;
 };
 
-export function summariseAttendance(days: readonly SummaryDay[], from: string, to: string): AttendanceSummary {
+export function summariseAttendance(days: readonly SummaryDay[], from: string, to: string, approvedHalfDays?: ReadonlySet<string>): AttendanceSummary {
   const s: AttendanceSummary = {
-    present: 0, onTime: 0, late: 0, early: 0, missing: 0, halfOrShort: 0, absent: 0, leave: 0,
+    present: 0, onTime: 0, late: 0, early: 0, missing: 0, halfOrShort: 0, halfDay: 0, halfDayDeductionDays: 0, absent: 0, leave: 0,
     workedMinutes: 0, lateMinutes: 0, lateAndMissing: 0, lateDeductionDays: 0, totalDeductionDays: 0,
   };
   for (const d of days) {
@@ -55,6 +59,10 @@ export function summariseAttendance(days: readonly SummaryDay[], from: string, t
         s.missing++;
         break;
       case "HALF_DAY":
+        s.halfOrShort++;
+        s.halfDay++;
+        if (!approvedHalfDays?.has(d.workDate)) s.halfDayDeductionDays += 0.5;
+        break;
       case "SHORT_DAY":
         s.halfOrShort++;
         break;
@@ -71,7 +79,7 @@ export function summariseAttendance(days: readonly SummaryDay[], from: string, t
   }
   s.lateAndMissing = s.late + s.missing;
   s.lateDeductionDays = Math.floor(s.lateAndMissing / LATES_PER_DEDUCTION_DAY);
-  s.totalDeductionDays = s.absent + s.lateDeductionDays;
+  s.totalDeductionDays = s.absent + s.lateDeductionDays + s.halfDayDeductionDays;
   return s;
 }
 

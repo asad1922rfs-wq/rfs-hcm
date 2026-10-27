@@ -5,6 +5,7 @@ import { salaryInForce } from "@/server/services/employees";
 import { calculatePay, type AttendanceStatusCode, type PayResult } from "@/core/payroll/calculate";
 import { earnedToDate, type EarnedToDate } from "@/core/payroll/earned-to-date";
 import { approvedLeaveDates } from "@/server/services/leave";
+import { approvedHalfDayDates } from "@/server/services/attendance-requests";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
@@ -36,10 +37,11 @@ export async function estimatePayslip(employeeId: string, year: number, month: n
   const salary = await salaryInForce(employeeId, lastDayOfPeriod < today ? lastDayOfPeriod : today);
   if (!salary) return null;
 
-  const [rows, loans, leaves] = await Promise.all([
+  const [rows, loans, leaves, halfDays] = await Promise.all([
     attendanceDaysForMonth(employeeId, year, month),
     loanDeductionsFor([employeeId], year, month),
     approvedLeaveDates([employeeId], monthStart, monthEnd),
+    approvedHalfDayDates([employeeId], monthStart, monthEnd),
   ]);
   const joiningDate = toDateOnlyString(employee.joiningDate);
   const exitDate = employee.exitDate ? toDateOnlyString(employee.exitDate) : null;
@@ -50,6 +52,7 @@ export async function estimatePayslip(employeeId: string, year: number, month: n
     adjustments: [],
     loans: loans.get(employeeId) ?? [],
     unpaidLeaveDates: new Set([...(leaves.get(employeeId) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
+    approvedHalfDayDates: halfDays.get(employeeId),
   });
   return {
     ...result,

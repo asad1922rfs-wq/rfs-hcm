@@ -64,7 +64,7 @@ export default async function AttendanceRequestsPage({ searchParams }: { searchP
     <>
       <PageHeader
         title="Attendance requests"
-        description={`Ask for a late arrival to be waived when you still worked your full shift. Up to ${MONTHLY_WAIVER_LIMIT} requests per month; approved days count as present.`}
+        description={`Ask for a late arrival to be waived when you still worked your full shift. Up to ${MONTHLY_WAIVER_LIMIT} requests per month; approved days count as present. Approved half days (left early with permission) are not deducted.`}
         actions={canRequest ? <RequestWaiverDialog left={left} min={earliest} max={today} defaultOpen={sp.new === "1"} /> : undefined}
       />
       <nav className="mb-5 flex gap-1 border-b">

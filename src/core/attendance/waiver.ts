@@ -5,13 +5,14 @@
 // Present instead of Late, so it does not feed payroll's "every 3 lates = 1 day" deduction.
 
 import { formatHoursMinutes } from "./month-calendar";
-import { shiftEndOffset, type DayResult, type ShiftRule } from "./engine";
+import { HALF_DAY_MIN_MINUTES, shiftEndOffset, type DayResult, type ShiftRule } from "./engine";
 
 export const WAIVER_REASONS = [
   { key: "FULL_HOURS", text: "I completed my full shift hours (9 hours)" },
   { key: "STAYED_LATE", text: "I came late and stayed late to cover my hours" },
   { key: "MACHINE_ISSUE", text: "Forgot to punch / machine issue" },
   { key: "PRIOR_PERMISSION", text: "Late with prior permission from my manager" },
+  { key: "HALF_DAY", text: "Half day (left early with permission)" },
 ] as const;
 export type WaiverReasonKey = (typeof WAIVER_REASONS)[number]["key"];
 export const WAIVER_REASON_KEYS = WAIVER_REASONS.map((r) => r.key) as [WaiverReasonKey, ...WaiverReasonKey[]];
@@ -52,6 +53,30 @@ export function checkWaiverHours(day: { status: string; workedMinutes: number | 
     };
   }
   return { ok: true, workedMinutes: day.workedMinutes };
+}
+
+/**
+ * Can a half-day request be approved? Only a completed day that is a Half day, or Early with at least
+ * HALF_DAY_MIN_MINUTES worked. Approving it removes the half-day pay deduction; the status stays.
+ */
+export function checkHalfDay(day: { status: string; workedMinutes: number | null } | null): WaiverCheck {
+  if (!day) return { ok: false, workedMinutes: null, message: "There is no attendance for this day yet, so the half day can't be verified. Correct the times first, or reject." };
+  if (day.workedMinutes === null) {
+    return { ok: false, workedMinutes: null, message: "The check-in or check-out is missing, so the half day can't be verified. Ask HR to fix the times via Attendance → Edit first, then approve — or reject." };
+  }
+  const halfDay = day.status === "HALF_DAY" || (day.status === "EARLY" && day.workedMinutes >= HALF_DAY_MIN_MINUTES);
+  if (!halfDay) {
+    return {
+      ok: false, workedMinutes: day.workedMinutes,
+      message: `This day is not a half day (${formatHoursMinutes(day.workedMinutes)} worked; a half day is at least ${formatHoursMinutes(HALF_DAY_MIN_MINUTES)} and leaving early). Reject the request instead.`,
+    };
+  }
+  return { ok: true, workedMinutes: day.workedMinutes };
+}
+
+/** The approval check for a request: half-day requests use checkHalfDay, every other reason the late-waiver hours rule. */
+export function checkRequest(reasonKey: string, day: { status: string; workedMinutes: number | null } | null, requiredMinutes: number): WaiverCheck {
+  return reasonKey === "HALF_DAY" ? checkHalfDay(day) : checkWaiverHours(day, requiredMinutes);
 }
 
 /**

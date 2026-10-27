@@ -6,6 +6,7 @@ import { AppError, ForbiddenError, NotFoundError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
 import { calculatePay, type AttendanceStatusCode } from "@/core/payroll/calculate";
 import { approvedLeaveDates } from "@/server/services/leave";
+import { approvedHalfDayDates } from "@/server/services/attendance-requests";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
@@ -45,9 +46,10 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
     },
   });
 
-  const [leaves, loans] = await Promise.all([
+  const [leaves, loans, halfDays] = await Promise.all([
     approvedLeaveDates(employees.map((e) => e.id), start, end),
     loanDeductionsFor(employees.map((e) => e.id), run.year, run.month),
+    approvedHalfDayDates(employees.map((e) => e.id), start, end),
   ]);
 
   const existing = await db.payrollItem.findMany({
@@ -72,6 +74,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       days: new Map(e.attendanceDays.map((d) => [toDateOnlyString(d.workDate), d.status as AttendanceStatusCode])),
       adjustments: (prior?.adjustments ?? []).map((a) => ({ kind: a.kind, label: a.label, amount: Number(a.amount) })),
       unpaidLeaveDates: new Set([...(leaves.get(e.id) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
+      approvedHalfDayDates: halfDays.get(e.id),
       loans: loans.get(e.id) ?? [],
     });
     const data = {

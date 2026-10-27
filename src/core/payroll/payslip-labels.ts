@@ -21,6 +21,11 @@ export function payslipLineLabel(line: Pick<PayLine, "code" | "label">): string 
       const n = firstNumber(line.label);
       return n === null ? "Unpaid Leave" : `Unpaid Leave (${plural(n, "day")})`;
     }
+    case "HALF_DAY": {
+      // "Half day 2 × 0.5 × 3225.81"
+      const n = firstNumber(line.label);
+      return n === null ? "Half Day Deduction" : `Half Day Deduction (${plural(n, "day")})`;
+    }
     case "LATE": {
       // "2 late arrivals + 1 missing punch → 1 day (every 3 = 1 day) × 3225.81"
       const m = /→\s*(\d+)\s*day/.exec(line.label);

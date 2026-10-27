@@ -10,6 +10,7 @@ import { scopedEmployeeWhere } from "@/server/auth/scope";
 import { localTime } from "@/server/services/attendance-edit";
 import { holidaysBetween } from "@/server/services/holidays";
 import { leaveBalances } from "@/server/services/leave";
+import { approvedHalfDayDates } from "@/server/services/attendance-requests";
 import { monthName } from "@/server/services/payroll";
 import { addDaysIso } from "@/core/attendance/engine";
 import { DAY_STATUSES } from "@/core/attendance/day-status";
@@ -69,6 +70,7 @@ export async function attendanceSummaryRows(actor: Actor, year: number, month: n
     : [];
   const byEmployee = new Map<string, typeof days>();
   for (const d of days) (byEmployee.get(d.employeeId) ?? byEmployee.set(d.employeeId, []).get(d.employeeId)!).push(d);
+  const halfDays = await approvedHalfDayDates(employees.map((e) => e.id), from, to);
 
   return employees.map((e) => ({
     employeeId: e.id,
@@ -76,7 +78,7 @@ export async function attendanceSummaryRows(actor: Actor, year: number, month: n
     fullName: e.fullName,
     department: e.department?.name ?? null,
     designation: e.designation?.title ?? null,
-    ...summariseAttendance((byEmployee.get(e.id) ?? []).map((d) => ({ ...d, workDate: toDateOnlyString(d.workDate) })), from, to),
+    ...summariseAttendance((byEmployee.get(e.id) ?? []).map((d) => ({ ...d, workDate: toDateOnlyString(d.workDate) })), from, to, halfDays.get(e.id)),
   }));
 }
 
@@ -338,17 +340,18 @@ export async function attendanceSummaryWorkbook(actor: Actor, year: number, mont
     { header: "Early Leave", key: "early", width: 9 },
     { header: "Missing Punch", key: "missing", width: 10 },
     { header: "Half / Short Day", key: "halfShort", width: 10 },
+    { header: "Half Day", key: "halfDay", width: 9 },
     { header: "Absent", key: "absent", width: 9 },
     { header: "Leave", key: "leave", width: 8 },
     { header: "Worked Hours", key: "hours", width: 10, numFmt: "0.0" },
     { header: "Late Minutes", key: "lateMin", width: 10, numFmt: PKR },
     { header: "Late + Missing", key: "lateMissing", width: 10 },
     { header: "Late Deduction Days (every 3 = 1)", key: "lateDays", width: 14 },
-    { header: "Total Deduction Days (absent + late)", key: "totalDays", width: 16 },
+    { header: "Total Deduction Days (absent + late + 0.5 × half day)", key: "totalDays", width: 18 },
   ];
   const data = rows.map((r) => ({
     code: r.employeeCode, name: r.fullName, dept: r.department ?? "", desig: r.designation ?? "",
-    present: r.present, onTime: r.onTime, late: r.late, early: r.early, missing: r.missing, halfShort: r.halfOrShort,
+    present: r.present, onTime: r.onTime, late: r.late, early: r.early, missing: r.missing, halfShort: r.halfOrShort, halfDay: r.halfDay,
     absent: r.absent, leave: r.leave, hours: Math.round((r.workedMinutes / 60) * 10) / 10, lateMin: r.lateMinutes,
     lateMissing: r.lateAndMissing, lateDays: r.lateDeductionDays, totalDays: r.totalDeductionDays,
   }));

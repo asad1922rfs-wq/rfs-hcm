@@ -7,10 +7,15 @@
 //   * Early = check-out before shift end.
 //   * A single punch is MISSING (check-in or check-out not recorded).
 //   * Punches on an off day are PRESENT with no late/early.
-//   * Half-day and short-day thresholds are not applied until RFS confirms them.
+//   * Half day = a completed day that left early with HALF_DAY_MIN_MINUTES up to (not including) HALF_DAY_MAX_MINUTES
+//     worked. It takes precedence over Late (a half day is not also counted as a late). Outside that range stays Early.
 
 export const PKT_OFFSET_MIN = 5 * 60; // Asia/Karachi is UTC+5 with no daylight saving
 const DUPLICATE_WINDOW_MIN = 2;
+/** Minimum worked time for an early-leaving day to count as a half day (4.5 hours). */
+export const HALF_DAY_MIN_MINUTES = 270;
+/** An early-leaving day with this much or more worked is only Early, not a half day (6 hours). */
+export const HALF_DAY_MAX_MINUTES = 360;
 /** Punches this long before shift start still belong to that work day. */
 const WINDOW_BEFORE_START_MIN = 4 * 60;
 /** Punches this long after shift end still belong to that work day (covers late check-outs after midnight). */
@@ -19,7 +24,7 @@ const WINDOW_AFTER_END_MIN = 7 * 60;
 export type ShiftRule = { startMinute: number; endMinute: number; graceMinutes: number };
 
 export type DayResult = {
-  status: "PRESENT" | "LATE" | "EARLY" | "MISSING" | "SHORT_DAY";
+  status: "PRESENT" | "LATE" | "EARLY" | "HALF_DAY" | "MISSING" | "SHORT_DAY";
   firstIn: Date;
   lastOut: Date | null;
   punchCount: number;
@@ -158,7 +163,8 @@ export function computeDay(workDate: string, punches: readonly Date[], shift: Sh
   const last = kept[kept.length - 1]!;
   const workedMinutes = Math.round((last.getTime() - first.getTime()) / 60_000);
   const earlyLeaveMinutes = isOffDay ? 0 : Math.max(0, shiftEndOffset(shift) - minuteOf(last));
-  const status = isOffDay ? "PRESENT" : lateMinutes > shift.graceMinutes ? "LATE" : earlyLeaveMinutes > 0 ? "EARLY" : "PRESENT";
+  const halfDay = !isOffDay && earlyLeaveMinutes > 0 && workedMinutes >= HALF_DAY_MIN_MINUTES && workedMinutes < Math.min(HALF_DAY_MAX_MINUTES, shiftEndOffset(shift) - shift.startMinute);
+  const status = isOffDay ? "PRESENT" : halfDay ? "HALF_DAY" : lateMinutes > shift.graceMinutes ? "LATE" : earlyLeaveMinutes > 0 ? "EARLY" : "PRESENT";
 
   return { status, firstIn: first, lastOut: last, punchCount: kept.length, workedMinutes, lateMinutes, earlyLeaveMinutes };
 }
