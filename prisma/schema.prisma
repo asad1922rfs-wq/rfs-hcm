@@ -140,6 +140,8 @@ model Employee {
   deviceUserId   String?          @unique
   /// REMOTE employees sign in and out from their dashboard (machine punches still count)
   workMode       WorkMode         @default(OFFICE)
+  /// REMOTE only: flexible hours (9h minimum, no shift timing) apply from this date; earlier days are credited
+  flexibleFrom   DateTime?        @db.Date
 
   departmentId  String?
   department    Department?  @relation(fields: [departmentId], references: [id])

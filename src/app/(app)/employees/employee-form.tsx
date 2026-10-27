@@ -21,7 +21,7 @@ export type EmployeeFormOptions = {
 
 export type EmployeeFormDefaults = Partial<Record<
   | "employeeCode" | "fullName" | "email" | "phone" | "gender" | "dateOfBirth" | "cnic" | "address" | "joiningDate"
-  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId" | "workMode",
+  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId" | "workMode" | "flexibleFrom",
   string
 >> & { contacts?: { name: string; relationship: string; phone: string }[] };
 
@@ -39,6 +39,7 @@ type Props = {
 export function EmployeeForm({ action, options, defaults, mode, excludeManagerId, canSetSalary, canSetBank, cancelHref }: Props) {
   const [state, formAction] = useActionState(action, null);
   const [newDesignation, setNewDesignation] = useState(false);
+  const [workMode, setWorkMode] = useState(defaults.workMode ?? "OFFICE");
   const fe = state && !state.ok ? (state.fieldErrors ?? {}) : {};
   const defaultShift = defaults.shiftId ?? options.shifts.find((s) => s.isDefault)?.id ?? "";
 
@@ -119,10 +120,20 @@ export function EmployeeForm({ action, options, defaults, mode, excludeManagerId
             inputMode="numeric"
           />
           <Field label="Work mode" name="workMode" errors={fe.workMode} required hint="Remote employees sign in and out from their dashboard">
-            <NativeSelect id="f-workMode" name="workMode" defaultValue={defaults.workMode ?? "OFFICE"}>
+            <NativeSelect id="f-workMode" name="workMode" value={workMode} onChange={(ev) => setWorkMode(ev.target.value)}>
               {WORK_MODES.map((m) => <option key={m} value={m}>{WORK_MODE_LABELS[m]}</option>)}
             </NativeSelect>
           </Field>
+          {workMode === "REMOTE" && (
+            <Field
+              label="Flexible hours from"
+              name="flexibleFrom"
+              type="date"
+              defaultValue={defaults.flexibleFrom}
+              errors={fe.flexibleFrom}
+              hint="From this date: no shift timing, 9 hours minimum a day. Earlier days are credited. Blank = tomorrow"
+            />
+          )}
         </CardContent>
       </Card>
 

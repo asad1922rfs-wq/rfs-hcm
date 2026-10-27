@@ -6,8 +6,9 @@ import { decryptField, encryptField, maskValue } from "@/server/crypto";
 import { AppError, NotFoundError } from "@/server/errors";
 import { assertPermission, can, revokeUserSessions, type Actor } from "@/server/auth/session";
 import { assertEmployeeAccess, canAccessEmployee, scopedEmployeeWhere, teamEmployeeIds } from "@/server/auth/scope";
-import { todayInPKT } from "@/lib/dates";
-import { relinkEmployeePunches } from "@/server/services/attendance";
+import { todayInPKT, toDateOnlyString } from "@/lib/dates";
+import { addDaysIso } from "@/core/attendance/engine";
+import { recomputeAttendance, relinkEmployeePunches } from "@/server/services/attendance";
 import { removeEmployeeDocumentFiles } from "@/server/services/documents";
 import { NEW_DESIGNATION, type BankInput, type EmployeeInput, type SalaryInput } from "@/lib/validation";
 import { findOrCreateDesignation } from "@/server/services/organisation";
@@ -156,7 +157,16 @@ export async function suggestEmployeeCode(): Promise<string> {
 
 type EmergencyContactInput = { name: string; relationship: string; phone: string };
 
-function employeeData(input: EmployeeInput) {
+/**
+ * Flexible hours start for a remote employee: the date HR chose, else the one already set, else tomorrow (PKT),
+ * so days until now stay credited. Office employees keep whatever is stored (it is ignored for them).
+ */
+function flexibleFromFor(input: EmployeeInput, current: Date | null): Date | null {
+  if (input.workMode !== "REMOTE") return current;
+  return input.flexibleFrom ?? current ?? new Date(`${addDaysIso(toDateOnlyString(todayInPKT()), 1)}T00:00:00Z`);
+}
+
+function employeeData(input: EmployeeInput, current: { flexibleFrom: Date | null } | null = null) {
   return {
     employeeCode: input.employeeCode.toUpperCase(),
     fullName: input.fullName,
@@ -174,6 +184,7 @@ function employeeData(input: EmployeeInput) {
     managerId: input.managerId ?? null,
     deviceUserId: input.deviceUserId ?? null,
     workMode: input.workMode,
+    flexibleFrom: flexibleFromFor(input, current?.flexibleFrom ?? null),
   };
 }
 
@@ -255,7 +266,7 @@ export async function updateEmployee(actor: Actor, employeeId: string, input: Em
   let after;
   try {
     after = await db.$transaction(async (tx) => {
-      const data = employeeData(input);
+      const data = employeeData(input, before);
       // Keep the existing ciphertext when the CNIC itself has not changed.
       if (before.cnicEnc && input.cnic && decryptField(before.cnicEnc) === input.cnic) data.cnicEnc = before.cnicEnc;
       const after = await tx.employee.update({ where: { id: employeeId }, data });
@@ -269,6 +280,11 @@ export async function updateEmployee(actor: Actor, employeeId: string, input: Em
   }
   // Biometric ID, shift or employment dates may have changed: re-link punches and recalculate attendance.
   await relinkEmployeePunches(employeeId, after.deviceUserId);
+  // Work mode or flexible-hours start changed: days without punches flip between credited and absent.
+  if (before.workMode !== after.workMode || before.flexibleFrom?.getTime() !== after.flexibleFrom?.getTime()) {
+    const today = toDateOnlyString(todayInPKT());
+    await recomputeAttendance({ employeeIds: [employeeId], from: `${addDaysIso(`${today.slice(0, 7)}-01`, -1).slice(0, 7)}-01`, to: today });
+  }
   return after;
 }
 

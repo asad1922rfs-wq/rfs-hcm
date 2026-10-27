@@ -117,6 +117,7 @@ export default async function EmployeeProfilePage({
                   { label: "Shift", value: e.shift ? `${e.shift.name} · ${formatMinuteOfDay(e.shift.startMinute)} – ${formatMinuteOfDay(e.shift.endMinute)}` : undefined },
                   { label: "Biometric user ID", value: e.deviceUserId },
                   { label: "Work mode", value: WORK_MODE_LABELS[e.workMode] },
+                  ...(e.workMode === "REMOTE" ? [{ label: "Flexible hours from", value: e.flexibleFrom ? formatDate(e.flexibleFrom) : "Not set" }] : []),
                   ...(e.exitDate ? [{ label: "Exit date", value: formatDate(e.exitDate) }] : []),
                 ]}
               />

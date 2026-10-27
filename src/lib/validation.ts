@@ -59,6 +59,8 @@ export const employeeSchema = z.object({
   managerId: optionalId,
   deviceUserId: z.preprocess(blank, z.string().trim().max(20).regex(/^[0-9A-Za-z]+$/, "Letters and numbers only.").optional()),
   workMode: z.preprocess(blank, z.enum(WORK_MODES, { message: "Choose a work mode." }).default("OFFICE")),
+  /** Remote only: flexible hours (9h minimum) apply from this date. Blank keeps the current date, or tomorrow. */
+  flexibleFrom: optionalDate("Flexible hours from"),
   /** Title typed after choosing "+ Add new designation…" (designationId = NEW_DESIGNATION). */
   newDesignation: optionalText(100),
 }).superRefine((v, ctx) => {

@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { recordAudit } from "@/server/audit";
 import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
-import { addDaysIso, applyAdjustment, computeDay, excuseAdjusted, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
+import { addDaysIso, applyAdjustment, computeDay, computeFlexibleDay, excuseAdjusted, FLEXIBLE_DAY_SPAN_MIN, groupFlexiblePunches, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { applyLateWaiver } from "@/core/attendance/waiver";
 import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId } from "@/core/attendance/web-punch";
@@ -192,7 +192,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     db.employee.findMany({
       // Remote employees may have no biometric ID — their web sign-ins are linked directly.
       where: { OR: [{ deviceUserId: { not: null } }, { workMode: "REMOTE" }], ...(opts.employeeIds ? { id: { in: opts.employeeIds } } : {}) },
-      select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true } } },
+      select: { id: true, joiningDate: true, exitDate: true, workMode: true, flexibleFrom: true, shift: { include: { dayOverrides: true } } },
     }),
     // Device coverage comes from machine punches only: one remote sign-in does not mean the device has synced.
     db.rawPunch.findFirst({ where: { source: { not: "WEB" } }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } }),
@@ -208,7 +208,8 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const punches = await db.rawPunch.findMany({
     where: {
       employeeId: { in: employees.map((e) => e.id) },
-      punchedAt: { gte: localMidnight(addDaysIso(opts.from, -1)), lt: localMidnight(addDaysIso(to, 2)) },
+      // Two days back: a remote work day opened by an earlier sign-in can reach into the first recomputed date.
+      punchedAt: { gte: localMidnight(addDaysIso(opts.from, -2)), lt: localMidnight(addDaysIso(to, 2)) },
     },
     select: { employeeId: true, punchedAt: true },
   });
@@ -250,10 +251,18 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const chosen = adjustments.get(`${emp.id}|${date}`)?.shift;
       return chosen ? { ...chosen, overrides: chosen.dayOverrides } : undefined;
     };
-    for (const p of punches) {
-      if (p.employeeId !== emp.id) continue;
-      const wd = workDateOf(p.punchedAt, shift, dayShift);
-      (byDate.get(wd) ?? byDate.set(wd, []).get(wd)!).push(p.punchedAt);
+    // Remote (work from home): flexible hours — no shift timing, a 9-hour minimum from `flexibleFrom`.
+    const flexible = emp.workMode === "REMOTE";
+    const flexibleFrom = emp.flexibleFrom ? toDateOnlyString(emp.flexibleFrom) : null;
+    const enforceMinimum = (date: string) => !!flexibleFrom && date >= flexibleFrom;
+    const own = punches.filter((p) => p.employeeId === emp.id).map((p) => p.punchedAt);
+    if (flexible) {
+      for (const [wd, list] of groupFlexiblePunches(own)) byDate.set(wd, list);
+    } else {
+      for (const p of own) {
+        const wd = workDateOf(p, shift, dayShift);
+        (byDate.get(wd) ?? byDate.set(wd, []).get(wd)!).push(p);
+      }
     }
 
     // Days before joining, or before attendance was tracked in this system, have no record.
@@ -273,11 +282,15 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       // An edit may judge this one day against another shift (its timing, day overrides and grace).
       const rule = ruleForDate(dayShift(date) ?? shift, date);
       // Today stays "in progress" until a check-out exists — also when only the check-in was edited.
-      let result = computeDay(date, effective, rule, isOffDay, date === today && !adj?.checkOut);
+      // A flexible day stays in progress until FLEXIBLE_DAY_SPAN_MIN after its sign-in (a sign-out may still come).
+      const inProgress = !adj?.checkOut && (date === today || (flexible && !!effective[0] && Date.now() - effective[0].getTime() < FLEXIBLE_DAY_SPAN_MIN * 60_000));
+      let result = flexible
+        ? computeFlexibleDay(effective, enforceMinimum(date) && !isOffDay, inProgress)
+        : computeDay(date, effective, rule, isOffDay, inProgress);
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
-      if (result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
-      if (result && !isOffDay) result = applyLateWaiver(result, waived.has(`${emp.id}|${date}`));
+      if (!flexible && result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
+      if (!flexible && result && !isOffDay) result = applyLateWaiver(result, waived.has(`${emp.id}|${date}`));
       // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 
@@ -290,6 +303,12 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       } else if (!isOffDay && onLeave(emp.id, date)) {
         data = {
           status: "LEAVE", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
+          isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
+        };
+      } else if (flexible && !isOffDay && date < today && !enforceMinimum(date)) {
+        // Remote, before flexible hours started: the working day is credited (no sign-ins were required).
+        data = {
+          status: "PRESENT", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
           isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
         };
       } else if (!isOffDay && date < today && syncedFrom && syncedThrough && date >= syncedFrom && date < syncedThrough) {

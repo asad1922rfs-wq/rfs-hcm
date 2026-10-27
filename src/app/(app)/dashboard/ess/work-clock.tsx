@@ -30,7 +30,7 @@ export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; 
       </p>
       {!clock.signIn ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          {clock.offDay ? `${clock.offDay} — no work scheduled` : `Not signed in yet · shift ${clock.shiftLabel}`}
+          {clock.offDay ? `${clock.offDay} — no work scheduled` : clock.flexible ? `Not signed in yet · ${clock.shiftLabel}` : `Not signed in yet · shift ${clock.shiftLabel}`}
         </p>
       ) : (
         <>
@@ -40,11 +40,17 @@ export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; 
           </div>
           <p className="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
             <span>In {time12(clock.signIn)}{clock.signOut ? ` · Out ${time12(clock.signOut)}` : ""}</span>
-            <span>{clock.signOut ? `${pct}% of shift` : remaining > 0 ? `${hm(remaining)} to go` : "Shift complete"}</span>
+            <span>
+              {clock.flexible
+                ? clock.signOut ? `${pct}% of 9h minimum` : remaining > 0 ? `${hm(remaining)} to go · 9h minimum` : "9h minimum met"
+                : clock.signOut ? `${pct}% of shift` : remaining > 0 ? `${hm(remaining)} to go` : "Shift complete"}
+            </span>
           </p>
         </>
       )}
-      {canPunch && <WebPunchButton signedIn={!!clock.signIn} signedOutAt={clock.signOut} worked={worked} />}
+      {canPunch && (
+        <WebPunchButton signedInAt={clock.signIn} signedOutAt={clock.signOut} minimumMinutes={clock.minimumApplies && !clock.offDay ? clock.shiftMinutes : null} />
+      )}
     </div>
   );
 }
@@ -53,8 +59,9 @@ export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; 
  * Every click records a punch at the server's time: the first of the day is the sign-in, the last the sign-out
  * (so signing out again after a sign-out moves the sign-out to now).
  */
-function WebPunchButton({ signedIn, signedOutAt, worked }: { signedIn: boolean; signedOutAt: string | null; worked: number }) {
+function WebPunchButton({ signedInAt, signedOutAt, minimumMinutes }: { signedInAt: string | null; signedOutAt: string | null; minimumMinutes: number | null }) {
   const [pending, start] = useTransition();
+  const signedIn = !!signedInAt;
   const signingOut = signedIn;
   return (
     <div className="mt-3 grid gap-1.5">
@@ -64,7 +71,13 @@ function WebPunchButton({ signedIn, signedOutAt, worked }: { signedIn: boolean; 
         variant={signingOut ? "outline" : "default"}
         disabled={pending}
         onClick={() => {
-          if (signingOut && !confirm(`Sign out now? Worked ${signedOutAt ? hm((Date.now() - Date.parse(signedOutAt)) / 60_000 + worked) : hm(worked)}`)) return;
+          if (signingOut && signedInAt) {
+            const workedNow = Math.max(0, (Date.now() - Date.parse(signedInAt)) / 60_000);
+            const message = minimumMinutes !== null && workedNow < minimumMinutes
+              ? `You've worked ${hm(workedNow)} — signing out now marks a Short day. Sign out anyway?`
+              : `Sign out now? Worked ${hm(workedNow)}`;
+            if (!confirm(message)) return;
+          }
           start(async () => {
             const r = await webPunchAction();
             if (r.ok) toast.success(signingOut ? "Signed out." : "Signed in.");

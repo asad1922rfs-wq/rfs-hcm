@@ -275,7 +275,7 @@ export type RegisterRow = {
 export type ShiftOption = DayAwareShift & { id: string; name: string };
 
 type EmployeeForRegister = {
-  id: string; employeeCode: string; fullName: string; department: { name: string } | null;
+  id: string; employeeCode: string; fullName: string; department: { name: string } | null; workMode: string;
   shift: (DayAwareShift & { name: string; dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[] }) | null;
 };
 
@@ -320,7 +320,8 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
         lateMinutes: d?.lateMinutes ?? 0,
         earlyLeaveMinutes: d?.earlyLeaveMinutes ?? 0,
         isOffDay: weekend.includes(new Date(`${date}T00:00:00Z`).getUTCDay()) || holidays.has(date),
-        shiftLabel: rule ? `${canEdit && a?.shift ? `${a.shift.name} · ` : ""}${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
+        // Remote (work from home) employees have no shift timing.
+        shiftLabel: e.workMode === "REMOTE" ? "Flexible (9h)" : rule ? `${canEdit && a?.shift ? `${a.shift.name} · ` : ""}${formatMinuteOfDay(rule.startMinute)} – ${formatMinuteOfDay(rule.endMinute)}` : "—",
         usualShiftName: s?.name ?? null,
         adjustment: a && canEdit
           ? { checkIn: localTime(a.checkIn, date)?.time ?? null, checkOut: localTime(a.checkOut, date)?.time ?? null, reason: a.reason, category: a.category, excused: a.excused, shiftId: a.shiftId }
@@ -332,7 +333,7 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
 }
 
 const employeeSelect = {
-  id: true, employeeCode: true, fullName: true,
+  id: true, employeeCode: true, fullName: true, workMode: true,
   department: { select: { name: true } },
   shift: { include: { dayOverrides: true } },
 } satisfies Prisma.EmployeeSelect;

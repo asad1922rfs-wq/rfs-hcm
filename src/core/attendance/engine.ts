@@ -19,7 +19,7 @@ const WINDOW_AFTER_END_MIN = 7 * 60;
 export type ShiftRule = { startMinute: number; endMinute: number; graceMinutes: number };
 
 export type DayResult = {
-  status: "PRESENT" | "LATE" | "EARLY" | "MISSING";
+  status: "PRESENT" | "LATE" | "EARLY" | "MISSING" | "SHORT_DAY";
   firstIn: Date;
   lastOut: Date | null;
   punchCount: number;
@@ -161,4 +161,54 @@ export function computeDay(workDate: string, punches: readonly Date[], shift: Sh
   const status = isOffDay ? "PRESENT" : lateMinutes > shift.graceMinutes ? "LATE" : earlyLeaveMinutes > 0 ? "EARLY" : "PRESENT";
 
   return { status, firstIn: first, lastOut: last, punchCount: kept.length, workedMinutes, lateMinutes, earlyLeaveMinutes };
+}
+
+// ───────────── Flexible hours (remote / work from home) ─────────────
+//
+// No shift timing: never late or early. A worked day needs FLEXIBLE_MIN_WORK_MINUTES (sign-in to sign-out);
+// less is a Short day. A work day starts at its first punch and a sign-out up to FLEXIBLE_DAY_SPAN_MIN later
+// still belongs to it (2 PM → 1 AM, 10 PM → 7 AM).
+
+/** Minimum working time per working day for flexible-hours employees (9 hours). */
+export const FLEXIBLE_MIN_WORK_MINUTES = 9 * 60;
+/** How long after the sign-in a punch still belongs to the same flexible work day. */
+export const FLEXIBLE_DAY_SPAN_MIN = 20 * 60;
+
+/**
+ * Group punches into flexible work days: the first punch opens a day on its local (PKT) date; every punch up to
+ * FLEXIBLE_DAY_SPAN_MIN after that opening punch belongs to the same work date. Returns work date → punches.
+ */
+export function groupFlexiblePunches(punches: readonly Date[]): Map<string, Date[]> {
+  const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());
+  const out = new Map<string, Date[]>();
+  let open: { date: string; at: number } | null = null;
+  for (const p of sorted) {
+    if (!open || p.getTime() - open.at > FLEXIBLE_DAY_SPAN_MIN * 60_000) open = { date: toLocal(p).date, at: p.getTime() };
+    (out.get(open.date) ?? out.set(open.date, []).get(open.date)!).push(p);
+  }
+  return out;
+}
+
+/** Work date of a single instant for a flexible employee, given their other punches (see groupFlexiblePunches). */
+export function flexibleWorkDateOf(instant: Date, punches: readonly Date[]): string {
+  for (const [date, list] of groupFlexiblePunches([...punches, instant])) if (list.some((p) => p.getTime() === instant.getTime())) return date;
+  return toLocal(instant).date;
+}
+
+/**
+ * A flexible-hours day. `enforceMinimum` false (before the employee's flexible-hours start) credits any punches
+ * as Present. With it: sign-in and sign-out → Present at ≥ the minimum, else Short day; only a sign-in → Missing,
+ * or Present while `inProgress`.
+ */
+export function computeFlexibleDay(punches: readonly Date[], enforceMinimum: boolean, inProgress = false, minMinutes = FLEXIBLE_MIN_WORK_MINUTES): DayResult | null {
+  const kept = dedupePunches(punches);
+  const first = kept[0];
+  if (!first) return null;
+  const base = { firstIn: first, punchCount: kept.length, lateMinutes: 0, earlyLeaveMinutes: 0 };
+  if (kept.length === 1) {
+    return { ...base, status: inProgress || !enforceMinimum ? "PRESENT" : "MISSING", lastOut: null, workedMinutes: null };
+  }
+  const last = kept[kept.length - 1]!;
+  const workedMinutes = Math.round((last.getTime() - first.getTime()) / 60_000);
+  return { ...base, status: enforceMinimum && workedMinutes < minMinutes ? "SHORT_DAY" : "PRESENT", lastOut: last, workedMinutes };
 }
