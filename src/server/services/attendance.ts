@@ -234,10 +234,10 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const adj = adjustments.get(`${emp.id}|${date}`);
       const machine = byDate.get(date) ?? [];
       const effective = adj ? applyAdjustment(machine, adj) : machine;
-      // An adjusted day is never "in progress": the corrected times are taken as final.
       // An edit may judge this one day against another shift (its timing, day overrides and grace).
       const rule = ruleForDate(dayShift(date) ?? shift, date);
-      let result = computeDay(date, effective, rule, isOffDay, date === today && !adj);
+      // Today stays "in progress" until a check-out exists — also when only the check-in was edited.
+      let result = computeDay(date, effective, rule, isOffDay, date === today && !adj?.checkOut);
       // Company-sanctioned change (work from home, load-shedding early off): only the edited times are excused.
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
       if (result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);

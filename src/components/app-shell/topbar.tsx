@@ -16,6 +16,7 @@ import { Brand, SidebarNav } from "./sidebar";
 import { GlobalSearch } from "./global-search";
 import type { NavSection } from "./nav";
 import type { Notifications } from "@/server/services/notifications";
+import { markNotificationsSeenAction } from "./notification-actions";
 
 type Props = {
   sections: NavSection[];
@@ -95,9 +96,20 @@ export function Topbar({ sections, notifications, companyShortName, logoUrl, use
 }
 
 function NotificationsBell({ notifications }: { notifications: Notifications }) {
-  const { pending, decided, total } = notifications;
+  const { pending, decided } = notifications;
+  const unread = decided.filter((d) => d.unread).length;
+  // Once opened, outcomes stop counting; pending approvals stay until they are handled.
+  const [seen, setSeen] = useState(false);
+  const total = notifications.total - (seen ? unread : 0);
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open && unread > 0 && !seen) {
+          setSeen(true);
+          void markNotificationsSeenAction();
+        }
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label={total ? `Notifications (${total})` : "Notifications"}>
           <Bell className="size-5" />
@@ -111,7 +123,7 @@ function NotificationsBell({ notifications }: { notifications: Notifications }) 
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {total === 0 && <p className="px-2 py-6 text-center text-sm text-muted-foreground">You&apos;re all caught up</p>}
+        {pending.length === 0 && decided.length === 0 && <p className="px-2 py-6 text-center text-sm text-muted-foreground">You&apos;re all caught up</p>}
         {pending.map((g) => (
           <DropdownMenuItem key={g.key} asChild>
             <Link href={g.href} className="flex items-center justify-between gap-3">
@@ -125,7 +137,7 @@ function NotificationsBell({ notifications }: { notifications: Notifications }) 
           <DropdownMenuItem key={d.id} asChild>
             <Link href={d.href} className="flex items-start gap-2">
               {d.approved ? <CheckCircle2 className="mt-0.5 text-emerald-600" /> : <XCircle className="mt-0.5 text-destructive" />}
-              <span className="text-sm">{d.text}</span>
+              <span className={`text-sm ${d.unread && !seen ? "font-medium" : "text-muted-foreground"}`}>{d.text}</span>
             </Link>
           </DropdownMenuItem>
         ))}

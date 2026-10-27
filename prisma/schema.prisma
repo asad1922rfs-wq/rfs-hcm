@@ -231,6 +231,8 @@ model Role {
 
 model User {
   id                 String    @id @default(cuid())
+  /// When the user last opened the notifications bell; outcomes decided before this no longer count
+  notificationsSeenAt DateTime?
   /// Login email (optional — users can also sign in with their Employee ID)
   email              String?   @unique
   passwordHash       String

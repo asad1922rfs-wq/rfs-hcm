@@ -11,11 +11,11 @@ const DECIDED_DAYS = 7;
 const MAX_DECIDED = 10;
 
 export type PendingGroup = { key: "attendance" | "leave" | "loans"; label: string; count: number; href: string };
-export type DecidedItem = { id: string; text: string; approved: boolean; href: string; decidedAt: Date };
+export type DecidedItem = { id: string; text: string; approved: boolean; href: string; decidedAt: Date; unread: boolean };
 export type Notifications = {
   pending: PendingGroup[];
   decided: DecidedItem[];
-  /** Badge total: pending approvals plus recent outcomes. */
+  /** Badge total: pending approvals (until handled) plus outcomes not yet seen in the bell. */
   total: number;
   /** Pending approvals per sidebar link. */
   navBadges: Record<string, number>;
@@ -30,7 +30,7 @@ export async function notificationsFor(actor: Actor): Promise<Notifications> {
     ? { employeeId: actor.employeeId, status: { in: ["APPROVED", "REJECTED"] as ("APPROVED" | "REJECTED")[] }, decidedAt: { gte: since } }
     : null;
 
-  const [attendance, leave, loans, myAttendance, myLeave, ownLoans] = await Promise.all([
+  const [attendance, leave, loans, myAttendance, myLeave, ownLoans, me] = await Promise.all([
     pendingAttendanceRequestCount(actor),
     pendingLeaveCount(actor),
     pendingLoanCount(actor),
@@ -46,7 +46,9 @@ export async function notificationsFor(actor: Actor): Promise<Notifications> {
         })
       : Promise.resolve([]),
     actor.employeeId ? ownLoanCount(actor.employeeId) : Promise.resolve(0),
+    db.user.findUnique({ where: { id: actor.userId }, select: { notificationsSeenAt: true } }),
   ]);
+  const seenAt = me?.notificationsSeenAt?.getTime() ?? 0;
 
   const pending: PendingGroup[] = (
     [
@@ -66,13 +68,19 @@ export async function notificationsFor(actor: Actor): Promise<Notifications> {
       id: `leave-${r.id}`, approved: r.status === "APPROVED", href: "/leave", decidedAt: r.decidedAt!,
       text: `Your ${r.leaveType.name} request for ${formatDate(r.startDate)}${r.endDate.getTime() !== r.startDate.getTime() ? ` – ${formatDate(r.endDate)}` : ""} was ${word(r.status)}`,
     })),
-  ].sort((a, b) => b.decidedAt.getTime() - a.decidedAt.getTime()).slice(0, MAX_DECIDED);
+  ].map((d) => ({ ...d, unread: d.decidedAt.getTime() > seenAt }))
+    .sort((a, b) => b.decidedAt.getTime() - a.decidedAt.getTime()).slice(0, MAX_DECIDED);
 
   return {
     pending,
     decided,
-    total: pending.reduce((s, g) => s + g.count, 0) + decided.length,
+    total: pending.reduce((s, g) => s + g.count, 0) + decided.filter((d) => d.unread).length,
     navBadges: { "/attendance/requests": attendance, "/leave": leave, "/loans": loans },
     hasOwnLoans: ownLoans > 0,
   };
+}
+
+/** Opening the bell marks the user's outcomes as seen (pending approvals keep counting until handled). */
+export async function markNotificationsSeen(actor: Actor) {
+  await db.user.update({ where: { id: actor.userId }, data: { notificationsSeenAt: new Date() } });
 }
