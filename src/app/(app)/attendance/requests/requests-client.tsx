@@ -34,7 +34,7 @@ export function RequestWaiverDialog({ left, min, max, defaultOpen }: { left: Rec
         <DialogHeader>
           <DialogTitle>Attendance request</DialogTitle>
           <DialogDescription>
-            Ask for a late arrival to be waived. It is approved only if you worked your full shift that day (first check-in to last check-out). For a half day you left early with permission, choose “Half day” — approved half days are not deducted.
+            “Full shift hours” and “Stayed late” are approved only if you worked your full shift that day. “Forgot to punch”, “Prior permission” and “Half day” are up to your approver — once approved, that day has no deduction.
           </DialogDescription>
         </DialogHeader>
         {Object.keys(left).length === 0 ? (

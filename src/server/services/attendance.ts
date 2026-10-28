@@ -6,7 +6,7 @@ import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, computeFlexibleDay, excuseAdjusted, FLEXIBLE_DAY_SPAN_MIN, groupFlexiblePunches, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
-import { applyLateWaiver } from "@/core/attendance/waiver";
+import { applyFullWaiver, applyLateWaiver, TRUSTED_REASONS } from "@/core/attendance/waiver";
 import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId } from "@/core/attendance/web-punch";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
@@ -233,12 +233,14 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const onLeave = (employeeId: string, date: string) =>
     leaveRows.some((l) => l.employeeId === employeeId && toDateOnlyString(l.startDate) <= date && toDateOnlyString(l.endDate) >= date);
 
-  // Approved late waivers (attendance requests): that day's Late counts as Present.
+  // Approved attendance requests: hours-checked reasons waive the Late; trusted reasons (machine issue, prior
+  // permission) make the whole day Present with no deduction. Half-day requests only waive the half-day deduction (payroll).
   const waiverRows = await db.attendanceRequest.findMany({
     where: { employeeId: { in: employees.map((e) => e.id) }, status: "APPROVED", NOT: { reasonKey: "HALF_DAY" }, workDate: { gte: new Date(`${opts.from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
-    select: { employeeId: true, workDate: true },
+    select: { employeeId: true, workDate: true, reasonKey: true },
   });
   const waived = new Set(waiverRows.map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
+  const fullyWaived = new Set(waiverRows.filter((w) => TRUSTED_REASONS.includes(w.reasonKey)).map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
 
   const adjustments = new Map(adjustmentRows.map((a) => [`${a.employeeId}|${toDateOnlyString(a.workDate)}`, a]));
 
@@ -293,6 +295,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       // A correction (OTHER) never excuses: only work from home / load shedding do, whatever older rows stored.
       if (!flexible && result && adj?.excused && adj.category !== "OTHER" && !isOffDay) result = excuseAdjusted(result, adj, rule);
       if (!flexible && result && !isOffDay) result = applyLateWaiver(result, waived.has(`${emp.id}|${date}`));
+      if (!flexible && result && !isOffDay && fullyWaived.has(`${emp.id}|${date}`)) result = applyFullWaiver(result);
       // Only an adjusted check-out (no sign-in at all): record it as the check-out, not the check-in.
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 
@@ -309,6 +312,12 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
         };
       } else if (flexible && !isOffDay && date <= today && !enforceMinimum(date)) {
         // Remote, before flexible hours started (today included): the working day is credited (no sign-ins were required).
+        data = {
+          status: "PRESENT", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
+          isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
+        };
+      } else if (!isOffDay && fullyWaived.has(`${emp.id}|${date}`)) {
+        // Approved "forgot to punch / machine issue" or "prior permission" with no punches at all: Present, not Absent.
         data = {
           status: "PRESENT", firstIn: null, lastOut: null, punchCount: 0, workedMinutes: null, lateMinutes: 0, earlyLeaveMinutes: 0,
           isOffDay, isAdjusted: false, shiftId: emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),

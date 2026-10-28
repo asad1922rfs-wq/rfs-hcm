@@ -34,7 +34,7 @@ export function requiredShiftMinutes(rule: Pick<ShiftRule, "startMinute" | "endM
   return shiftEndOffset(rule) - rule.startMinute;
 }
 
-export type WaiverCheck = { ok: true; workedMinutes: number } | { ok: false; workedMinutes: number | null; message: string };
+export type WaiverCheck = { ok: true; workedMinutes: number | null } | { ok: false; workedMinutes: number | null; message: string };
 
 /**
  * Can a late waiver be approved for this day? Only a Late day with both check-in and check-out, whose worked
@@ -74,9 +74,21 @@ export function checkHalfDay(day: { status: string; workedMinutes: number | null
   return { ok: true, workedMinutes: day.workedMinutes };
 }
 
-/** The approval check for a request: half-day requests use checkHalfDay, every other reason the late-waiver hours rule. */
+/**
+ * Reasons the approver vouches for: no hours check, and once approved the day carries no deduction
+ * (counted as Present; for a half day the half-day deduction is waived).
+ */
+export const TRUSTED_REASONS: readonly string[] = ["MACHINE_ISSUE", "PRIOR_PERMISSION", "HALF_DAY"];
+
+/** The approval check: trusted reasons always pass (the approver decides); the others need the full shift hours. */
 export function checkRequest(reasonKey: string, day: { status: string; workedMinutes: number | null } | null, requiredMinutes: number): WaiverCheck {
-  return reasonKey === "HALF_DAY" ? checkHalfDay(day) : checkWaiverHours(day, requiredMinutes);
+  if (TRUSTED_REASONS.includes(reasonKey)) return { ok: true, workedMinutes: day?.workedMinutes ?? null };
+  return checkWaiverHours(day, requiredMinutes);
+}
+
+/** An approved trusted request (machine issue / prior permission): late, missing punch, early or half day all count as Present. */
+export function applyFullWaiver(result: DayResult): DayResult {
+  return result.status === "PRESENT" ? result : { ...result, status: "PRESENT" };
 }
 
 /**
