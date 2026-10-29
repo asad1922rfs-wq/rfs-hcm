@@ -13,7 +13,7 @@ import { formatDate, to12h } from "@/lib/format";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf } from "@/server/json-fields";
 import { cn } from "@/lib/utils";
-import { CancelWaiverButton, DecideWaiverButtons, RequestWaiverDialog } from "./requests-client";
+import { BulkDecideProvider, CancelWaiverButton, DecideWaiverButtons, RequestWaiverDialog, SelectAllCheckbox, SelectRowCheckbox } from "./requests-client";
 
 export const metadata = { title: "Attendance requests" };
 
@@ -118,10 +118,12 @@ export default async function AttendanceRequestsPage({ searchParams }: { searchP
         queue.length === 0 ? (
           <EmptyState title="Nothing waiting" description="Pending attendance requests from your team show here." />
         ) : (
+          <BulkDecideProvider ids={queue.map((r) => r.id)}>
           <Card className="py-0">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8"><SelectAllCheckbox /></TableHead>
                   <TableHead>Employee</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Check-in / out</TableHead>
@@ -135,6 +137,7 @@ export default async function AttendanceRequestsPage({ searchParams }: { searchP
                   const date = toDateOnlyString(r.workDate);
                   return (
                     <TableRow key={r.id} className="align-top">
+                      <TableCell><SelectRowCheckbox id={r.id} name={r.employee.fullName} /></TableCell>
                       <TableCell>
                         <Link href={`/employees/${r.employee.id}`} className="font-medium hover:underline">{r.employee.fullName}</Link>
                         <span className="block text-xs text-muted-foreground">{r.employee.employeeCode}{r.employee.department ? ` · ${r.employee.department.name}` : ""}</span>
@@ -161,6 +164,7 @@ export default async function AttendanceRequestsPage({ searchParams }: { searchP
               </TableBody>
             </Table>
           </Card>
+          </BulkDecideProvider>
         )
       )}
     </>

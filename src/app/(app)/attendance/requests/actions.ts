@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
-import { cancelLateWaiver, decideLateWaiver, requestLateWaiver } from "@/server/services/attendance-requests";
+import { bulkDecideLateWaivers, cancelLateWaiver, decideLateWaiver, requestLateWaiver, type BulkDecideResult } from "@/server/services/attendance-requests";
 import { MAX_WAIVER_NOTE, WAIVER_REASON_KEYS } from "@/core/attendance/waiver";
 import type { ActionResult } from "@/server/errors";
 
@@ -33,6 +33,21 @@ export async function decideLateWaiverAction(id: string, approve: boolean, note:
     await decideLateWaiver(await requireActor(), id, approve, z.string().max(1000).parse(note));
     refresh();
     return { ok: true, message: approve ? "Approved — the day now counts as present." : "Request rejected." };
+  });
+}
+
+const bulkSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1, "Select at least one request.").max(200, "Select at most 200 requests at a time."),
+  decision: z.enum(["APPROVE", "REJECT"]),
+  note: z.string().trim().max(1000),
+}).refine((v) => v.decision === "APPROVE" || v.note.length >= 3, { message: "Give a reason for rejecting — the employees will see it.", path: ["note"] });
+
+export async function bulkDecideAction(ids: string[], decision: "APPROVE" | "REJECT", note = ""): Promise<ActionResult<BulkDecideResult>> {
+  return runAction(async () => {
+    const v = bulkSchema.parse({ ids, decision, note });
+    const data = await bulkDecideLateWaivers(await requireActor(), v.ids, v.decision === "APPROVE", v.note);
+    refresh();
+    return { ok: true, data, message: `${v.decision === "APPROVE" ? "Approved" : "Rejected"} ${data.decided}` };
   });
 }
 

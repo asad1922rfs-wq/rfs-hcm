@@ -110,6 +110,26 @@ export async function decideLateWaiver(actor: Actor, id: string, approve: boolea
   });
 }
 
+export type BulkDecideResult = { decided: number; skipped: { name: string; date: string; reason: string }[] };
+
+/** Decide many requests at once; each goes through decideLateWaiver's own checks, and failures are skipped with the reason. */
+export async function bulkDecideLateWaivers(actor: Actor, ids: string[], approve: boolean, note: string): Promise<BulkDecideResult> {
+  const rows = await db.attendanceRequest.findMany({ where: { id: { in: ids } }, select: { id: true, workDate: true, employee: { select: { fullName: true } } } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const result: BulkDecideResult = { decided: 0, skipped: [] };
+  for (const id of new Set(ids)) {
+    const r = byId.get(id);
+    try {
+      await decideLateWaiver(actor, id, approve, note);
+      result.decided++;
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e;
+      result.skipped.push({ name: r?.employee.fullName ?? "Unknown", date: r ? iso(r.workDate) : "", reason: e.message });
+    }
+  }
+  return result;
+}
+
 /** The employee cancels their own pending request. */
 export async function cancelLateWaiver(actor: Actor, id: string) {
   const r = await loadRequest(id);
