@@ -9,7 +9,7 @@ export type ChartDay = { date: string; label: string; status: DayStatus | null; 
 /** Days without worked time get a short fixed bar so their status colour is still visible. */
 const MARKER_MINUTES = 83;
 
-const LEGEND_ORDER: DayStatus[] = ["PRESENT", "LATE", "EARLY", "HALF_DAY", "ABSENT", "SHORT_DAY", "ABSENT_SHORT_TIME", "LEAVE", "SCHEDULED", "MISSING", "OFF", "NOT_SYNCED"];
+const LEGEND_ORDER: DayStatus[] = ["PRESENT", "LATE", "EARLY", "HALF_DAY", "ABSENT", "SHORT_DAY", "ABSENT_SHORT_TIME", "LEAVE", "SCHEDULED", "MISSING", "WORK_FROM_HOME", "OFF", "NOT_SYNCED"];
 
 export function AttendanceLegend() {
   return (
@@ -68,7 +68,7 @@ export function AttendanceFlagChart({ days }: { days: ChartDay[] }) {
               return (
                 <div className="rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
                   <p className="font-medium">{d.date}</p>
-                  <p>{d.status ? DAY_STATUSES[d.status].label : "Not employed"}</p>
+                  <p>{d.status === "WORK_FROM_HOME" ? "Work from home (approved)" : d.status ? DAY_STATUSES[d.status].label : "Not employed"}</p>
                   {d.holiday && <p>Holiday: {d.holiday}</p>}
                   {d.status === "MISSING" && d.signIn ? (
                     <p>Only punch: {d.signIn} (sign-in or sign-out missing)</p>

@@ -6,7 +6,7 @@ import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
 import { addDaysIso, applyAdjustment, computeDay, computeFlexibleDay, excuseAdjusted, FLEXIBLE_DAY_SPAN_MIN, groupFlexiblePunches, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
-import { applyFullWaiver, applyLateWaiver, TRUSTED_REASONS } from "@/core/attendance/waiver";
+import { applyFullWaiver, applyLateWaiver, applyWorkFromHome, TRUSTED_REASONS } from "@/core/attendance/waiver";
 import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId } from "@/core/attendance/web-punch";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
@@ -240,6 +240,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     select: { employeeId: true, workDate: true, reasonKey: true },
   });
   const waived = new Set(waiverRows.map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
+  const workFromHome = new Set(waiverRows.filter((w) => w.reasonKey === "WORK_FROM_HOME").map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
   const fullyWaived = new Set(waiverRows.filter((w) => TRUSTED_REASONS.includes(w.reasonKey)).map((w) => `${w.employeeId}|${toDateOnlyString(w.workDate)}`));
 
   const adjustments = new Map(adjustmentRows.map((a) => [`${a.employeeId}|${toDateOnlyString(a.workDate)}`, a]));
@@ -300,7 +301,14 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
       const onlyCheckOut = !!(result && adj?.checkOut && !adj.checkIn && effective.length === 1);
 
       let data: Omit<Prisma.AttendanceDayUncheckedCreateInput, "employeeId" | "workDate"> | null = null;
-      if (result) {
+      if (!flexible && !isOffDay && workFromHome.has(`${emp.id}|${date}`) && !onLeave(emp.id, date)) {
+        // Approved work from home (office employee): the day is Work from home, punches or not; approved leave wins.
+        const wfh = applyWorkFromHome(result);
+        data = {
+          ...wfh, ...(onlyCheckOut ? { firstIn: null, lastOut: adj!.checkOut } : {}), isOffDay, isAdjusted: !!adj,
+          shiftId: adj?.shift?.id ?? emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),
+        };
+      } else if (result) {
         data = {
           ...result, ...(onlyCheckOut ? { firstIn: null, lastOut: adj!.checkOut } : {}), status: result.status as AttendanceStatus, isOffDay, isAdjusted: !!adj,
           shiftId: adj?.shift?.id ?? emp.shift?.id ?? defaultShift?.id ?? null, computedAt: new Date(),

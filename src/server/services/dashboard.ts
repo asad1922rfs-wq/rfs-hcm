@@ -72,7 +72,7 @@ export async function getDashboardData(actor: Actor) {
   });
   const countOf = (...statuses: string[]) => todayRows.filter((r) => statuses.includes(r.status)).reduce((s, r) => s + r._count._all, 0);
   const lastPunch = await db.rawPunch.findFirst({ orderBy: { punchedAt: "desc" }, select: { punchedAt: true } });
-  const checkedIn = countOf("PRESENT", "LATE", "EARLY", "MISSING", "HALF_DAY", "SHORT_DAY");
+  const checkedIn = countOf("PRESENT", "LATE", "EARLY", "MISSING", "HALF_DAY", "SHORT_DAY", "WORK_FROM_HOME");
   const attendanceToday = lastPunch
     ? {
         present: checkedIn,

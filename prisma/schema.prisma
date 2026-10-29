@@ -354,6 +354,7 @@ enum AttendanceStatus {
   ABSENT
   LEAVE
   MISSING
+  WORK_FROM_HOME
 }
 
 /// One processed attendance result per employee per work date, derived from raw punches.

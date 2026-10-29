@@ -191,6 +191,7 @@ export function EssDashboard({ data, canImport, showApprovals, canRequestAttenda
           <dl className="max-h-72 overflow-y-auto">
             {[
               ["Present", s.summary.present],
+              ["Work from home", s.summary.wfh],
               ["Absent", s.summary.absent],
               ["Leave", s.summary.leave],
               ["Half day", s.summary.halfDay],

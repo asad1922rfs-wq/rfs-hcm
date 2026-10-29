@@ -12,6 +12,7 @@ export const DAY_STATUSES = {
   LEAVE: { label: "Leave", color: "var(--status-leave)" },
   SCHEDULED: { label: "Scheduled", color: "var(--status-scheduled)" },
   MISSING: { label: "Missing punch", color: "var(--status-missing)" },
+  WORK_FROM_HOME: { label: "Work from home", color: "var(--status-wfh)" },
   OFF: { label: "Off", color: "var(--status-off)" },
   NOT_SYNCED: { label: "Not synced", color: "var(--status-not-synced)" },
 } as const;
@@ -19,4 +20,4 @@ export const DAY_STATUSES = {
 export type DayStatus = keyof typeof DAY_STATUSES;
 
 /** Statuses where the employee worked; their bar height is the worked time. */
-export const WORKED_STATUSES: readonly DayStatus[] = ["PRESENT", "LATE", "EARLY", "HALF_DAY", "SHORT_DAY", "ABSENT_SHORT_TIME", "MISSING"];
+export const WORKED_STATUSES: readonly DayStatus[] = ["PRESENT", "LATE", "EARLY", "HALF_DAY", "SHORT_DAY", "ABSENT_SHORT_TIME", "MISSING", "WORK_FROM_HOME"];

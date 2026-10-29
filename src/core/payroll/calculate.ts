@@ -14,7 +14,7 @@
 
 import { capLoanDeductions, loanLineLabel, type LoanDue } from "@/core/loans/schedule";
 
-export type AttendanceStatusCode = "PRESENT" | "LATE" | "EARLY" | "HALF_DAY" | "SHORT_DAY" | "ABSENT" | "LEAVE" | "MISSING";
+export type AttendanceStatusCode = "PRESENT" | "LATE" | "EARLY" | "HALF_DAY" | "SHORT_DAY" | "ABSENT" | "LEAVE" | "MISSING" | "WORK_FROM_HOME";
 
 /**
  * `loanId` is set on LOAN lines so approving the run can record each loan's repayment; `planned` is the installment
@@ -118,6 +118,7 @@ export function calculatePay(input: PayInput): PayResult {
       case "PRESENT":
       case "EARLY":
       case "SHORT_DAY":
+      case "WORK_FROM_HOME":
         presentDays++;
         break;
       case "LEAVE":

@@ -47,6 +47,7 @@
   --status-missing: #a3378f;
   --status-off: #23262d;
   --status-not-synced: #c3cad6;
+  --status-wfh: #8b5cf6;
 
   --sidebar: oklch(0.24 0.06 264);
   --sidebar-foreground: oklch(0.9 0.015 255);
@@ -86,6 +87,7 @@
   --status-scheduled: #6f8f9b;
   --status-off: #5b6170;
   --status-not-synced: #3a4252;
+  --status-wfh: #a78bfa;
 
   --sidebar: oklch(0.15 0.025 265);
   --sidebar-foreground: oklch(0.88 0.015 255);

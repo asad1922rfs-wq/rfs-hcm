@@ -65,6 +65,8 @@ export type MonthSummary = {
   present: number;
   late: number;
   early: number;
+  /** Approved work-from-home days (also in present). */
+  wfh: number;
   halfDay: number;
   absent: number;
   leave: number;
@@ -76,7 +78,7 @@ export type MonthSummary = {
 
 /** Counts for days up to and including today (future days are excluded, like the FlowHCM summary). */
 export function summariseMonth(days: readonly CalendarDay[], today: string): MonthSummary {
-  const s: MonthSummary = { present: 0, late: 0, early: 0, halfDay: 0, absent: 0, leave: 0, offDays: 0, missing: 0, notSynced: 0, workedMinutes: 0 };
+  const s: MonthSummary = { present: 0, late: 0, early: 0, wfh: 0, halfDay: 0, absent: 0, leave: 0, offDays: 0, missing: 0, notSynced: 0, workedMinutes: 0 };
   for (const day of days) {
     if (day.date > today || !day.status) continue;
     s.workedMinutes += day.workedMinutes ?? 0;
@@ -93,6 +95,10 @@ export function summariseMonth(days: readonly CalendarDay[], today: string): Mon
       case "EARLY":
         s.present++;
         s.early++;
+        break;
+      case "WORK_FROM_HOME":
+        s.present++;
+        s.wfh++;
         break;
       case "HALF_DAY":
         s.halfDay++;

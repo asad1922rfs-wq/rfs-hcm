@@ -338,6 +338,7 @@ export async function attendanceSummaryWorkbook(actor: Actor, year: number, mont
     { header: "On Time", key: "onTime", width: 9 },
     { header: "Late", key: "late", width: 8 },
     { header: "Early Leave", key: "early", width: 9 },
+    { header: "WFH", key: "wfh", width: 8 },
     { header: "Missing Punch", key: "missing", width: 10 },
     { header: "Half / Short Day", key: "halfShort", width: 10 },
     { header: "Half Day", key: "halfDay", width: 9 },
@@ -351,7 +352,7 @@ export async function attendanceSummaryWorkbook(actor: Actor, year: number, mont
   ];
   const data = rows.map((r) => ({
     code: r.employeeCode, name: r.fullName, dept: r.department ?? "", desig: r.designation ?? "",
-    present: r.present, onTime: r.onTime, late: r.late, early: r.early, missing: r.missing, halfShort: r.halfOrShort, halfDay: r.halfDay,
+    present: r.present, onTime: r.onTime, late: r.late, early: r.early, wfh: r.wfh, missing: r.missing, halfShort: r.halfOrShort, halfDay: r.halfDay,
     absent: r.absent, leave: r.leave, hours: Math.round((r.workedMinutes / 60) * 10) / 10, lateMin: r.lateMinutes,
     lateMissing: r.lateAndMissing, lateDays: r.lateDeductionDays, totalDays: r.totalDeductionDays,
   }));

@@ -1,7 +1,8 @@
 // Monthly attendance summary for reports. Pure: no I/O.
 //
 // Counting rules (same as payroll, src/core/payroll/calculate.ts):
-//   * "Present" is every day the employee attended: PRESENT, LATE, EARLY, HALF_DAY, SHORT_DAY and MISSING.
+//   * "Present" is every day the employee attended: PRESENT, LATE, EARLY, HALF_DAY, SHORT_DAY, MISSING and
+//     WORK_FROM_HOME (an approved work-from-home day: paid, never late; also counted on its own as "wfh").
 //     The per-status columns break that total down.
 //   * Late arrivals and missing punches together: every 3 deduct one day.
 //   * Each absent day deducts one full day; each half day half a day unless its half-day request was approved.
@@ -22,6 +23,8 @@ export type AttendanceSummary = {
   onTime: number;
   late: number;
   early: number;
+  /** Approved work-from-home days (also in present). */
+  wfh: number;
   missing: number;
   halfOrShort: number;
   /** Half days (approved included); halfDayDeductionDays = 0.5 ×the half days without an approved request. */
@@ -40,7 +43,7 @@ export type AttendanceSummary = {
 
 export function summariseAttendance(days: readonly SummaryDay[], from: string, to: string, approvedHalfDays?: ReadonlySet<string>): AttendanceSummary {
   const s: AttendanceSummary = {
-    present: 0, onTime: 0, late: 0, early: 0, missing: 0, halfOrShort: 0, halfDay: 0, halfDayDeductionDays: 0, absent: 0, leave: 0,
+    present: 0, onTime: 0, late: 0, early: 0, wfh: 0, missing: 0, halfOrShort: 0, halfDay: 0, halfDayDeductionDays: 0, absent: 0, leave: 0,
     workedMinutes: 0, lateMinutes: 0, lateAndMissing: 0, lateDeductionDays: 0, totalDeductionDays: 0,
   };
   for (const d of days) {
@@ -54,6 +57,9 @@ export function summariseAttendance(days: readonly SummaryDay[], from: string, t
         break;
       case "EARLY":
         s.early++;
+        break;
+      case "WORK_FROM_HOME":
+        s.wfh++;
         break;
       case "MISSING":
         s.missing++;

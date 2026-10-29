@@ -13,6 +13,7 @@ export const WAIVER_REASONS = [
   { key: "MACHINE_ISSUE", text: "Forgot to punch / machine issue" },
   { key: "PRIOR_PERMISSION", text: "Late with prior permission from my manager" },
   { key: "HALF_DAY", text: "Half day (left early with permission)" },
+  { key: "WORK_FROM_HOME", text: "Work from home" },
 ] as const;
 export type WaiverReasonKey = (typeof WAIVER_REASONS)[number]["key"];
 export const WAIVER_REASON_KEYS = WAIVER_REASONS.map((r) => r.key) as [WaiverReasonKey, ...WaiverReasonKey[]];
@@ -78,7 +79,7 @@ export function checkHalfDay(day: { status: string; workedMinutes: number | null
  * Reasons the approver vouches for: no hours check, and once approved the day carries no deduction
  * (counted as Present; for a half day the half-day deduction is waived).
  */
-export const TRUSTED_REASONS: readonly string[] = ["MACHINE_ISSUE", "PRIOR_PERMISSION", "HALF_DAY"];
+export const TRUSTED_REASONS: readonly string[] = ["MACHINE_ISSUE", "PRIOR_PERMISSION", "HALF_DAY", "WORK_FROM_HOME"];
 
 /** The approval check: trusted reasons always pass (the approver decides); the others need the full shift hours. */
 export function checkRequest(reasonKey: string, day: { status: string; workedMinutes: number | null } | null, requiredMinutes: number): WaiverCheck {
@@ -98,4 +99,31 @@ export function applyFullWaiver(result: DayResult): DayResult {
 export function applyLateWaiver(result: DayResult, waived: boolean): DayResult {
   if (!waived || result.status !== "LATE") return result;
   return { ...result, status: result.earlyLeaveMinutes > 0 ? "EARLY" : "PRESENT" };
+}
+
+/** Fields of a work-from-home day (the stored AttendanceDay row, minus ids and bookkeeping). */
+export type WorkFromHomeDay = {
+  status: "WORK_FROM_HOME";
+  firstIn: Date | null;
+  lastOut: Date | null;
+  punchCount: number;
+  workedMinutes: number | null;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+};
+
+/**
+ * An approved work-from-home request (office employees, working days, no approved leave that day): the day is
+ * Work from home whatever the punches say. Punch times and worked time are kept when present; never late or early.
+ */
+export function applyWorkFromHome(result: DayResult | null): WorkFromHomeDay {
+  return {
+    status: "WORK_FROM_HOME",
+    firstIn: result?.firstIn ?? null,
+    lastOut: result?.lastOut ?? null,
+    punchCount: result?.punchCount ?? 0,
+    workedMinutes: result?.workedMinutes ?? null,
+    lateMinutes: 0,
+    earlyLeaveMinutes: 0,
+  };
 }

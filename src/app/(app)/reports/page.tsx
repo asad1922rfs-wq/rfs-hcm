@@ -141,7 +141,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <Card className="gap-0 pb-0">
         <CardHeader className="pb-4">
           <CardTitle>Attendance summary — {monthName(year, monthNo)}</CardTitle>
-          <CardDescription>Preview of the monthly summary. Present includes late, early, half / short days and missing punches.</CardDescription>
+          <CardDescription>Preview of the monthly summary. Present includes late, early, half / short days, missing punches and work from home.</CardDescription>
           <form className="mt-3 flex flex-wrap items-center gap-2" role="search">
             <input type="month" name="month" defaultValue={month} max={currentMonth} className="h-9 rounded-md border bg-transparent px-3 text-sm" aria-label="Month" />
             <NativeSelect name="department" defaultValue={department ?? ""} className="w-48" aria-label="Department">
@@ -162,6 +162,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 <TableHead className="text-right">Present</TableHead>
                 <TableHead className="text-right">Late</TableHead>
                 <TableHead className="text-right">Early</TableHead>
+                <TableHead className="text-right">WFH</TableHead>
                 <TableHead className="text-right">Missing</TableHead>
                 <TableHead className="text-right">Half day</TableHead>
                 <TableHead className="text-right">Absent</TableHead>
@@ -184,6 +185,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                   <TableCell className="text-right tabular-nums">{r.present}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.late}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.early}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.wfh}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.missing}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.halfDay}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.absent}</TableCell>

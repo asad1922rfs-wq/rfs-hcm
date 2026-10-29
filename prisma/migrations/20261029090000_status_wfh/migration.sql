@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `AttendanceDay` MODIFY `status` ENUM('PRESENT', 'LATE', 'EARLY', 'HALF_DAY', 'SHORT_DAY', 'ABSENT', 'LEAVE', 'MISSING', 'WORK_FROM_HOME') NOT NULL;
