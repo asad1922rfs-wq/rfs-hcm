@@ -12,6 +12,8 @@ import { recomputeAttendance, relinkEmployeePunches } from "@/server/services/at
 import { removeEmployeeDocumentFiles } from "@/server/services/documents";
 import { NEW_DESIGNATION, type BankInput, type EmployeeInput, type SalaryInput } from "@/lib/validation";
 import { findOrCreateDesignation } from "@/server/services/organisation";
+import { lockedPayrollMonths } from "@/server/services/payroll-lock";
+import { salaryRevisionBlock } from "@/core/payroll/salary-revision";
 
 // ───────────── Reads ─────────────
 
@@ -103,6 +105,8 @@ export async function getEmployeeProfile(actor: Actor, employeeId: string) {
     : null;
   const today = todayInPKT();
   const currentSalary = salaryHistory?.find((s) => s.effectiveFrom <= today) ?? null;
+  // "YYYY-MM" months with approved / paid payroll: revisions effective in them cannot be edited or deleted.
+  const lockedMonths = canSeeSalary ? [...(await lockedPayrollMonths())] : [];
 
   const bank = canSeeBank ? await db.bankAccount.findUnique({ where: { employeeId } }) : null;
   const maskedBank = bank
@@ -122,7 +126,7 @@ export async function getEmployeeProfile(actor: Actor, employeeId: string) {
 
   return {
     employee: { ...rest, cnic: cnicEnc && (canManage || isSelf) ? decryptField(cnicEnc) : cnicEnc ? "•••••-•••••••-•" : null },
-    salary: canSeeSalary ? { current: currentSalary, history: salaryHistory! } : null,
+    salary: canSeeSalary ? { current: currentSalary, history: salaryHistory!, lockedMonths } : null,
     bank: canSeeBank ? maskedBank : undefined,
   };
 }
@@ -185,6 +189,7 @@ function employeeData(input: EmployeeInput, current: { flexibleFrom: Date | null
     deviceUserId: input.deviceUserId ?? null,
     workMode: input.workMode,
     flexibleFrom: flexibleFromFor(input, current?.flexibleFrom ?? null),
+    isSales: input.isSales,
   };
 }
 
@@ -390,6 +395,62 @@ export async function addSalaryStructure(actor: Actor, employeeId: string, input
     }
     throw err;
   }
+}
+
+async function loadRevision(employeeId: string, salaryId: string) {
+  const revision = await db.salaryStructure.findUnique({ where: { id: salaryId }, include: { allowances: true } });
+  if (!revision || revision.employeeId !== employeeId) throw new NotFoundError("Salary revision not found.");
+  return revision;
+}
+
+/** Edit a salary revision. Blocked when it (or its new date) falls in a month with approved or paid payroll. */
+export async function updateSalaryStructure(actor: Actor, employeeId: string, salaryId: string, input: SalaryInput) {
+  assertPermission(actor, "salary.manage", "all");
+  const [before, employee, others, locked] = await Promise.all([
+    loadRevision(employeeId, salaryId),
+    db.employee.findUnique({ where: { id: employeeId }, select: { joiningDate: true } }),
+    db.salaryStructure.findMany({ where: { employeeId, NOT: { id: salaryId } }, select: { effectiveFrom: true } }),
+    lockedPayrollMonths(),
+  ]);
+  if (!employee) throw new NotFoundError("Employee not found.");
+  if (input.effectiveFrom < employee.joiningDate) throw new AppError("Effective date cannot be before the joining date.");
+  const block = salaryRevisionBlock({
+    currentDate: toDateOnlyString(before.effectiveFrom),
+    newDate: toDateOnlyString(input.effectiveFrom),
+    otherDates: others.map((o) => toDateOnlyString(o.effectiveFrom)),
+    lockedMonths: locked,
+  });
+  if (block) throw new AppError(block);
+
+  try {
+    return await db.$transaction(async (tx) => {
+      await tx.salaryAllowance.deleteMany({ where: { salaryStructureId: salaryId } });
+      const after = await tx.salaryStructure.update({
+        where: { id: salaryId },
+        data: { effectiveFrom: input.effectiveFrom, basicSalary: input.basicSalary, note: input.note ?? null, allowances: { create: input.allowances } },
+        include: { allowances: true },
+      });
+      await recordAudit({ actor, action: "salary.update", entityType: "Employee", entityId: employeeId, before, after }, tx);
+      return after;
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new AppError("Another salary revision already starts on that date.");
+    }
+    throw err;
+  }
+}
+
+/** Delete a salary revision (even the only one: the employee then has no salary). Same payroll lock as editing. */
+export async function deleteSalaryStructure(actor: Actor, employeeId: string, salaryId: string) {
+  assertPermission(actor, "salary.manage", "all");
+  const [before, locked] = await Promise.all([loadRevision(employeeId, salaryId), lockedPayrollMonths()]);
+  const block = salaryRevisionBlock({ currentDate: toDateOnlyString(before.effectiveFrom), newDate: null, otherDates: [], lockedMonths: locked });
+  if (block) throw new AppError(block);
+  await db.$transaction(async (tx) => {
+    await tx.salaryStructure.delete({ where: { id: salaryId } }); // allowances cascade
+    await recordAudit({ actor, action: "salary.delete", entityType: "Employee", entityId: employeeId, before }, tx);
+  });
 }
 
 function bankData(input: BankInput) {

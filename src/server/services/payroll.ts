@@ -11,6 +11,7 @@ import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 import { loanDeductionsFor, recordPayrollRepayments } from "@/server/services/loans";
+import { commissionsFor } from "@/server/services/sales";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const monthName = (year: number, month: number) => `${MONTHS[month - 1]} ${year}`;
@@ -46,10 +47,11 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
     },
   });
 
-  const [leaves, loans, halfDays] = await Promise.all([
+  const [leaves, loans, halfDays, commissions] = await Promise.all([
     approvedLeaveDates(employees.map((e) => e.id), start, end),
     loanDeductionsFor(employees.map((e) => e.id), run.year, run.month),
     approvedHalfDayDates(employees.map((e) => e.id), start, end),
+    commissionsFor(employees.map((e) => e.id), run.year, run.month),
   ]);
 
   const existing = await db.payrollItem.findMany({
@@ -76,6 +78,7 @@ async function calculateRunItems(run: PayrollRun, onlyEmployeeId?: string) {
       unpaidLeaveDates: new Set([...(leaves.get(e.id) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
       approvedHalfDayDates: halfDays.get(e.id),
       loans: loans.get(e.id) ?? [],
+      commission: commissions.get(e.id),
     });
     const data = {
       employeeCode: e.employeeCode,

@@ -61,6 +61,8 @@ export const employeeSchema = z.object({
   workMode: z.preprocess(blank, z.enum(WORK_MODES, { message: "Choose a work mode." }).default("OFFICE")),
   /** Remote only: flexible hours (9h minimum) apply from this date. Blank keeps the current date, or tomorrow. */
   flexibleFrom: optionalDate("Flexible hours from"),
+  /** Sales employee (monthly target & commission). Checkbox: "on" when ticked, absent otherwise. */
+  isSales: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
   /** Title typed after choosing "+ Add new designation…" (designationId = NEW_DESIGNATION). */
   newDesignation: optionalText(100),
 }).superRefine((v, ctx) => {
@@ -88,6 +90,15 @@ export const salarySchema = z.object({
   note: optionalText(300),
 });
 export type SalaryInput = z.infer<typeof salarySchema>;
+
+export const salesMonthSchema = z.object({
+  month: z.string({ error: "Month is required." }).regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Choose a month."),
+  target: money("Target"),
+  achieved: money("Achieved"),
+  commission: money("Commission"),
+  note: optionalText(300),
+});
+export type SalesMonthInput = z.infer<typeof salesMonthSchema>;
 
 export const bankSchema = z.object({
   bankName: requiredText("Bank name", 100),

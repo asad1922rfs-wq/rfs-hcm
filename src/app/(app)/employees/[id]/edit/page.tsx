@@ -46,6 +46,7 @@ export default async function EditEmployeePage({ params }: { params: Promise<{ i
           deviceUserId: e.deviceUserId ?? "",
           workMode: e.workMode,
           flexibleFrom: e.flexibleFrom ? toDateOnlyString(e.flexibleFrom) : "",
+          isSales: e.isSales ? "on" : "",
           contacts: e.emergencyContacts.map((c) => ({ name: c.name, relationship: c.relationship, phone: c.phone })),
         }}
       />

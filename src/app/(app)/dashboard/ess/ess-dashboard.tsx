@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarCheck2, CalendarDays, Cake, HandCoins, Info, ListChecks, ReceiptText, TriangleAlert } from "lucide-react";
+import { CalendarCheck2, CalendarDays, Cake, HandCoins, Info, ListChecks, ReceiptText, Target, TriangleAlert } from "lucide-react";
 import type { getEssDashboard } from "@/server/services/ess-dashboard";
 import type { WorkClock } from "@/server/services/work-clock";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -278,6 +278,33 @@ export function EssDashboard({ data, canImport, showApprovals, canRequestAttenda
           )}
           </PrivacyGroup>
         </Card>
+
+        {s.sales && (
+          <Card className="gap-0 py-0">
+            <PrivacyGroup>
+            <CardTitleBar icon={Target} title={data.period === "current" ? "Sales this month" : `Sales · ${monthName}`} action={<PrivacyToggle />} />
+            {s.sales === "NONE" ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">No sales target set for {monthName} yet.</p>
+            ) : (
+              <dl className="grid gap-3 px-4 py-3 text-sm">
+                <Row label="Target" value={<PrivateAmount value={formatPKR(s.sales.target)} />} />
+                <div className="grid gap-1.5">
+                  <Row label={`Achieved${s.sales.percent === null ? "" : ` (${s.sales.percent}%)`}`} value={<PrivateAmount value={formatPKR(s.sales.achieved)} />} />
+                  {s.sales.percent !== null && (
+                    <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={s.sales.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Achieved of target">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, s.sales.percent)}%` }} />
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-between gap-4 border-t pt-2 font-semibold">
+                  <dt>Commission</dt>
+                  <dd className="shrink-0 tabular-nums"><PrivateAmount value={formatPKR(s.sales.commission)} /></dd>
+                </div>
+              </dl>
+            )}
+            </PrivacyGroup>
+          </Card>
+        )}
       </div>
     </div>
   );

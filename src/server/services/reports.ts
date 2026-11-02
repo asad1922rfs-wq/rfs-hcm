@@ -214,6 +214,16 @@ const DEDUCTION_COLUMNS = [
   { code: "ADJ_DEDUCTION", header: "Other Deductions" },
 ] as const;
 
+/** Commission earning on a payslip (pay-line code COMMISSION). */
+function commissionOf(lines: Prisma.JsonValue): number {
+  if (!Array.isArray(lines)) return 0;
+  let total = 0;
+  for (const l of lines) {
+    if (l && typeof l === "object" && !Array.isArray(l) && l.kind === "EARNING" && l.code === "COMMISSION" && typeof l.amount === "number") total += l.amount;
+  }
+  return total;
+}
+
 function deductionsByCode(lines: Prisma.JsonValue): Record<string, number> {
   const out: Record<string, number> = {};
   if (!Array.isArray(lines)) return out;
@@ -441,6 +451,7 @@ export async function payrollRegisterWorkbook(actor: Actor, runId: string): Prom
     { header: "Basic Salary", key: "basic", width: 13, numFmt: PKR },
     { header: "Allowances", key: "allowances", width: 12, numFmt: PKR },
     { header: "Gross Salary", key: "gross", width: 13, numFmt: PKR },
+    { header: "Commission", key: "commission", width: 12, numFmt: PKR },
     { header: "Employed Days", key: "employed", width: 9 },
     { header: "Present", key: "present", width: 8 },
     { header: "Absent", key: "absent", width: 8 },
@@ -456,7 +467,7 @@ export async function payrollRegisterWorkbook(actor: Actor, runId: string): Prom
     const byCode = deductionsByCode(i.lines);
     return {
       code: i.employeeCode, name: i.fullName, dept: i.department ?? "", desig: i.designation ?? "",
-      basic: Number(i.basicSalary), allowances: Number(i.grossSalary) - Number(i.basicSalary), gross: Number(i.grossSalary),
+      basic: Number(i.basicSalary), allowances: Number(i.grossSalary) - Number(i.basicSalary), gross: Number(i.grossSalary), commission: commissionOf(i.lines),
       employed: i.employedDays, present: i.presentDays, absent: i.absentDays, late: i.lateCount, missing: i.missingPunchCount,
       lateDays: i.lateDeductionDays, earnings: Number(i.earnings),
       ...Object.fromEntries(DEDUCTION_COLUMNS.map((c) => [c.code, byCode[c.code] ?? 0])),
@@ -465,7 +476,7 @@ export async function payrollRegisterWorkbook(actor: Actor, runId: string): Prom
   });
   const register = addSheet(wb, "Payroll register", { company, title: "Payroll Register", period }, columns);
   addRows(register, columns, data);
-  addTotals(register, columns, data, "name", ["basic", "allowances", "gross", "earnings", ...DEDUCTION_COLUMNS.map((c) => c.code), "deductions", "net"]);
+  addTotals(register, columns, data, "name", ["basic", "allowances", "gross", "commission", "earnings", ...DEDUCTION_COLUMNS.map((c) => c.code), "deductions", "net"]);
 
   const bankColumns: Column[] = [
     { header: "Employee Code", key: "code", width: 14 },

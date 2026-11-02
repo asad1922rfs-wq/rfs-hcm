@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
-import { cancelLeave, decideLeave, requestLeave, saveLeaveType } from "@/server/services/leave";
+import { bulkDecideLeave, cancelLeave, decideLeave, type BulkDecideLeaveResult, requestLeave, saveLeaveType } from "@/server/services/leave";
 import { optionalId, requiredText } from "@/lib/validation";
 import type { ActionResult } from "@/server/errors";
 
@@ -36,6 +36,22 @@ export async function decideLeaveAction(id: string, approve: boolean, note: stri
     await decideLeave(await requireActor(), id, approve, z.string().max(300).parse(note));
     refresh();
     return { ok: true, message: approve ? "Leave approved." : "Leave rejected." };
+  });
+}
+
+const bulkSchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1, "Select at least one request.").max(200, "Select at most 200 requests at a time."),
+  decision: z.enum(["APPROVE", "REJECT"]),
+  note: z.string().trim().max(300),
+});
+
+/** Bulk approve/reject. The note is optional, matching single reject. */
+export async function bulkDecideLeaveAction(ids: string[], decision: "APPROVE" | "REJECT", note = ""): Promise<ActionResult<BulkDecideLeaveResult>> {
+  return runAction(async () => {
+    const v = bulkSchema.parse({ ids, decision, note });
+    const data = await bulkDecideLeave(await requireActor(), v.ids, v.decision === "APPROVE", v.note);
+    refresh();
+    return { ok: true, data, message: `${v.decision === "APPROVE" ? "Approved" : "Rejected"} ${data.decided}` };
   });
 }
 

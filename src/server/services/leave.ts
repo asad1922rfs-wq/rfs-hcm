@@ -170,6 +170,27 @@ export async function decideLeave(actor: Actor, id: string, approve: boolean, no
   });
 }
 
+export type BulkDecideLeaveResult = { decided: number; skipped: { name: string; dates: string; reason: string }[] };
+
+/** Decides several requests one at a time through decideLeave (same checks each); failures are skipped with their reason. */
+export async function bulkDecideLeave(actor: Actor, ids: string[], approve: boolean, note: string): Promise<BulkDecideLeaveResult> {
+  const rows = await db.leaveRequest.findMany({ where: { id: { in: ids } }, select: { id: true, startDate: true, endDate: true, employee: { select: { fullName: true } } } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const result: BulkDecideLeaveResult = { decided: 0, skipped: [] };
+  for (const id of new Set(ids)) {
+    const r = byId.get(id);
+    try {
+      await decideLeave(actor, id, approve, note);
+      result.decided++;
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e;
+      const dates = r ? (r.startDate.getTime() === r.endDate.getTime() ? iso(r.startDate) : `${iso(r.startDate)} – ${iso(r.endDate)}`) : "";
+      result.skipped.push({ name: r?.employee.fullName ?? "Unknown", dates, reason: e.message });
+    }
+  }
+  return result;
+}
+
 /** The employee cancels their own pending request; HR can also cancel an approved one (attendance is recalculated). */
 export async function cancelLeave(actor: Actor, id: string) {
   const r = await loadRequest(id);

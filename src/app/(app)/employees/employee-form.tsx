@@ -21,7 +21,7 @@ export type EmployeeFormOptions = {
 
 export type EmployeeFormDefaults = Partial<Record<
   | "employeeCode" | "fullName" | "email" | "phone" | "gender" | "dateOfBirth" | "cnic" | "address" | "joiningDate"
-  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId" | "workMode" | "flexibleFrom",
+  | "employmentType" | "departmentId" | "designationId" | "shiftId" | "managerId" | "deviceUserId" | "workMode" | "flexibleFrom" | "isSales",
   string
 >> & { contacts?: { name: string; relationship: string; phone: string }[] };
 
@@ -134,6 +134,10 @@ export function EmployeeForm({ action, options, defaults, mode, excludeManagerId
               hint="From this date: no shift timing, 9 hours minimum a day. Earlier days are credited. Blank = tomorrow"
             />
           )}
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" name="isSales" defaultChecked={defaults.isSales === "on"} className="size-4" />
+            Sales employee (monthly target &amp; commission)
+          </label>
         </CardContent>
       </Card>
 

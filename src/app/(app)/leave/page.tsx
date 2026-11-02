@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, PageHeader } from "@/components/common";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { CancelButton, DecideButtons, RequestLeaveDialog } from "./leave-client";
+import { BulkDecideProvider, CancelButton, DecideButtons, RequestLeaveDialog, SelectAllCheckbox, SelectRowCheckbox } from "./leave-client";
 
 export const metadata = { title: "Leave" };
 
@@ -21,13 +21,14 @@ const Status = ({ s }: { s: string }) => <span className={cn("rounded-full px-2 
 
 type Row = Awaited<ReturnType<typeof myLeaveRequests>>[number];
 
-function RequestsTable({ rows, showEmployee, actions }: { rows: Row[]; showEmployee?: boolean; actions?: (r: Row) => React.ReactNode }) {
+function RequestsTable({ rows, showEmployee, actions, selectable }: { rows: Row[]; showEmployee?: boolean; actions?: (r: Row) => React.ReactNode; selectable?: boolean }) {
   if (rows.length === 0) return <EmptyState title="Nothing here" />;
   return (
     <Card className="py-0">
       <Table>
         <TableHeader>
           <TableRow>
+            {selectable && <TableHead className="w-8"><SelectAllCheckbox /></TableHead>}
             {showEmployee && <TableHead>Employee</TableHead>}
             <TableHead>Type</TableHead>
             <TableHead>Dates</TableHead>
@@ -40,6 +41,7 @@ function RequestsTable({ rows, showEmployee, actions }: { rows: Row[]; showEmplo
         <TableBody>
           {rows.map((r) => (
             <TableRow key={r.id} className="align-top">
+              {selectable && <TableCell><SelectRowCheckbox id={r.id} name={r.employee.fullName} /></TableCell>}
               {showEmployee && (
                 <TableCell>
                   <Link href={`/employees/${r.employee.id}`} className="font-medium hover:underline">{r.employee.fullName}</Link>
@@ -152,7 +154,9 @@ export default async function LeavePage({ searchParams }: { searchParams: Promis
       )}
 
       {view === "approvals" && (
-        <RequestsTable rows={queue} showEmployee actions={(r) => <DecideButtons id={r.id} name={r.employee.fullName} />} />
+        <BulkDecideProvider ids={queue.map((r) => r.id)}>
+          <RequestsTable rows={queue} showEmployee selectable actions={(r) => <DecideButtons id={r.id} name={r.employee.fullName} />} />
+        </BulkDecideProvider>
       )}
 
       {view === "all" && (

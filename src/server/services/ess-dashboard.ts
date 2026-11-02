@@ -17,6 +17,7 @@ import { asStringArray, attendanceStartOf, trackedFrom, weekendOf } from "@/serv
 import { holidaysBetween } from "@/server/services/holidays";
 import { activeLoanSummary, pendingLoanCount } from "@/server/services/loans";
 import { pendingAttendanceRequestCount } from "@/server/services/attendance-requests";
+import { salesMonthFor } from "@/server/services/sales";
 
 /** "2:05 PM", or "12:30 AM (next day)" for an after-midnight check-out. */
 function clockLabel(instant: Date | null, workDate: string): string | null {
@@ -58,7 +59,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
   const employee = await db.employee.findUniqueOrThrow({
     where: { id: subjectId },
     select: {
-      id: true, fullName: true, employeeCode: true, photoPath: true, dateOfBirth: true, joiningDate: true, exitDate: true, deviceUserId: true,
+      id: true, fullName: true, employeeCode: true, photoPath: true, dateOfBirth: true, joiningDate: true, exitDate: true, deviceUserId: true, isSales: true,
       designation: { select: { title: true } }, department: { select: { name: true } },
     },
   });
@@ -97,7 +98,10 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
     lines: PayLine[]; warnings: string[]; earnedToDate: EarnedToDate | null;
   } = null;
   let payHistory: { id: string; label: string; netPay: number; status: string }[] = [];
+  // Sales employees: the month's target, achieved and commission (same access as pay).
+  let sales: null | { target: number; achieved: number; commission: number; percent: number | null } | "NONE" = null;
   if (await canAccessEmployee(actor, "salary.read", employee.id)) {
+    if (employee.isSales) sales = (await salesMonthFor(employee.id, year, month)) ?? "NONE";
     const history = await employeePayHistory(employee.id);
     payHistory = history.map((h) => ({ id: h.id, label: h.label, netPay: Number(h.netPay), status: h.run.status }));
     const approved = history.find((h) => h.run.year === year && h.run.month === month);
@@ -143,6 +147,7 @@ export async function getEssDashboard(actor: Actor, opts: { employeeId?: string;
       summaryUntil,
       payslip,
       payHistory,
+      sales,
       loans,
     },
     employeeOptions,

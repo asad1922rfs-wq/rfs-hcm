@@ -39,6 +39,8 @@ export type PayInput = {
   unpaidLeaveDates?: ReadonlySet<string>;
   /** Dates with an approved half-day attendance request: those half days are not deducted. */
   approvedHalfDayDates?: ReadonlySet<string>;
+  /** Sales commission HR entered for this month (SalesMonth.commission): paid in full as an earning, never prorated. */
+  commission?: number;
   /** Loan installments HR entered for this month, oldest loan first (src/core/loans/schedule.ts loanDueFor). */
   loans?: readonly LoanDue[];
 };
@@ -137,6 +139,7 @@ export function calculatePay(input: PayInput): PayResult {
     lines.push({ kind: "EARNING", code: "BASIC", label: "Basic salary", amount: rupees(basic) });
     for (const a of allowances) if (a.amount > 0) lines.push({ kind: "EARNING", code: "ALLOWANCE", label: `${a.name} allowance`, amount: rupees(a.amount) });
   }
+  if (input.commission && input.commission > 0) lines.push({ kind: "EARNING", code: "COMMISSION", label: "Commission", amount: rupees(input.commission) });
 
   if (employedDays === 0) {
     warnings.push("Not employed in this month");

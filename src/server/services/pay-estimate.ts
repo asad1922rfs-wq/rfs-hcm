@@ -10,6 +10,7 @@ import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
 import { loanDeductionsFor } from "@/server/services/loans";
+import { commissionsFor } from "@/server/services/sales";
 
 export type PayEstimate = PayResult & { earnedToDate: EarnedToDate | null };
 
@@ -37,11 +38,12 @@ export async function estimatePayslip(employeeId: string, year: number, month: n
   const salary = await salaryInForce(employeeId, lastDayOfPeriod < today ? lastDayOfPeriod : today);
   if (!salary) return null;
 
-  const [rows, loans, leaves, halfDays] = await Promise.all([
+  const [rows, loans, leaves, halfDays, commissions] = await Promise.all([
     attendanceDaysForMonth(employeeId, year, month),
     loanDeductionsFor([employeeId], year, month),
     approvedLeaveDates([employeeId], monthStart, monthEnd),
     approvedHalfDayDates([employeeId], monthStart, monthEnd),
+    commissionsFor([employeeId], year, month),
   ]);
   const joiningDate = toDateOnlyString(employee.joiningDate);
   const exitDate = employee.exitDate ? toDateOnlyString(employee.exitDate) : null;
@@ -53,6 +55,7 @@ export async function estimatePayslip(employeeId: string, year: number, month: n
     loans: loans.get(employeeId) ?? [],
     unpaidLeaveDates: new Set([...(leaves.get(employeeId) ?? new Map<string, boolean>())].filter(([, paid]) => !paid).map(([d]) => d)),
     approvedHalfDayDates: halfDays.get(employeeId),
+    commission: commissions.get(employeeId),
   });
   return {
     ...result,

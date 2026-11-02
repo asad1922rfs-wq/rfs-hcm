@@ -13,6 +13,8 @@ export function payslipLineLabel(line: Pick<PayLine, "code" | "label">): string 
   switch (line.code) {
     case "BASIC":
       return "Basic Salary";
+    case "COMMISSION":
+      return "Commission";
     case "ABSENT": {
       const n = firstNumber(line.label);
       return n === null ? "Absent Deduction" : `Absent Deduction (${n.toFixed(2)} Absent Days)`;

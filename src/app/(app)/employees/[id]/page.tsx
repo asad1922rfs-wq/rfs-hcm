@@ -20,7 +20,9 @@ import { DetailList, EmptyState, humanize, StatusBadge } from "@/components/comm
 import { formatDate, formatDateTime, formatMinuteOfDay, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
 import { initials } from "@/lib/utils";
-import { BankDialog, RevealBank, SalaryRevisionDialog, StatusDialog } from "./panels";
+import { BankDialog, RevealBank, SalaryRevisionActions, SalaryRevisionDialog, StatusDialog } from "./panels";
+import { SalesPanel } from "./sales";
+import { listSalesMonths } from "@/server/services/sales";
 import { DeleteEmployeesDialog } from "../delete-dialog";
 import { DocumentsPanel } from "./documents";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
@@ -60,6 +62,9 @@ export default async function EmployeeProfilePage({
   });
   const { employee: e, salary, bank } = profile;
   const canManage = can(actor, "employee.manage", "all");
+  const canManageSalary = can(actor, "salary.manage", "all");
+  const sales = salary && e.isSales ? await listSalesMonths(actor, e.id) : null;
+  const lockedMonths = new Set(salary?.lockedMonths ?? []);
 
   return (
     <>
@@ -89,10 +94,11 @@ export default async function EmployeeProfilePage({
         )}
       </div>
 
-      <Tabs defaultValue={sp.tab === "attendance" || sp.tab === "payslips" || sp.tab === "documents" ? sp.tab : "overview"}>
+      <Tabs defaultValue={sp.tab === "attendance" || sp.tab === "payslips" || sp.tab === "documents" || sp.tab === "sales" ? sp.tab : "overview"}>
         <TabsList className="mb-4 w-full justify-start overflow-x-auto [&>button]:flex-none [&>button]:px-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {salary && <TabsTrigger value="salary">Salary</TabsTrigger>}
+          {sales && <TabsTrigger value="sales">Sales</TabsTrigger>}
           {bank !== undefined && <TabsTrigger value="bank">Bank</TabsTrigger>}
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="leave">Leave</TabsTrigger>
@@ -117,6 +123,7 @@ export default async function EmployeeProfilePage({
                   { label: "Shift", value: e.shift ? `${e.shift.name} · ${formatMinuteOfDay(e.shift.startMinute)} – ${formatMinuteOfDay(e.shift.endMinute)}` : undefined },
                   { label: "Biometric user ID", value: e.deviceUserId },
                   { label: "Work mode", value: WORK_MODE_LABELS[e.workMode] },
+                  { label: "Sales employee", value: e.isSales ? "Yes · monthly target & commission" : "No" },
                   ...(e.workMode === "REMOTE" ? [{ label: "Flexible hours from", value: e.flexibleFrom ? formatDate(e.flexibleFrom) : "Not set" }] : []),
                   ...(e.exitDate ? [{ label: "Exit date", value: formatDate(e.exitDate) }] : []),
                 ]}
@@ -196,7 +203,7 @@ export default async function EmployeeProfilePage({
                     {salary.current ? `In force since ${formatDate(salary.current.effectiveFrom)}` : "No salary in force today."}
                   </CardDescription>
                 </div>
-                {can(actor, "salary.manage", "all") && <SalaryRevisionDialog employeeId={e.id} defaultDate={toDateOnlyString(todayInPKT())} />}
+                {canManageSalary && <SalaryRevisionDialog employeeId={e.id} defaultDate={toDateOnlyString(todayInPKT())} />}
               </CardHeader>
               <CardContent>
                 {salary.current ? (
@@ -216,6 +223,7 @@ export default async function EmployeeProfilePage({
                       <TableHead className="text-right">Allowances</TableHead>
                       <TableHead className="text-right">Monthly gross</TableHead>
                       <TableHead className="hidden sm:table-cell">Note</TableHead>
+                      {canManageSalary && <TableHead className="w-24"><span className="sr-only">Actions</span></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -228,6 +236,24 @@ export default async function EmployeeProfilePage({
                           <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(allowances)} /></TableCell>
                           <TableCell className="text-right font-medium tabular-nums"><PrivateAmount value={formatPKR(Number(s.basicSalary) + allowances)} /></TableCell>
                           <TableCell className="hidden text-muted-foreground sm:table-cell">{s.note ?? "—"}</TableCell>
+                          {canManageSalary && (
+                            <TableCell>
+                              <SalaryRevisionActions
+                                employeeId={e.id}
+                                isOnly={salary.history.length === 1}
+                                revision={{
+                                  id: s.id,
+                                  effectiveFrom: toDateOnlyString(s.effectiveFrom),
+                                  basicSalary: s.basicSalary.toString(),
+                                  note: s.note,
+                                  allowances: s.allowances.map((a) => ({ name: a.name, amount: a.amount.toString() })),
+                                  lockedReason: lockedMonths.has(toDateOnlyString(s.effectiveFrom).slice(0, 7))
+                                    ? "Payroll for this month is approved or paid, so this revision can no longer be changed. Add a new revision instead."
+                                    : null,
+                                }}
+                              />
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}
@@ -235,7 +261,18 @@ export default async function EmployeeProfilePage({
                 </Table>
               </Card>
             )}
+            {canManageSalary && salary.history.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Editing or deleting a revision does not recalculate payroll: recalculate any draft payroll afterwards. Revisions in months with approved or paid payroll are locked.
+              </p>
+            )}
             </PrivacyGroup>
+          </TabsContent>
+        )}
+
+        {sales && (
+          <TabsContent value="sales">
+            <SalesPanel employeeId={e.id} rows={sales} canManage={canManageSalary} defaultMonth={currentMonth} />
           </TabsContent>
         )}
 

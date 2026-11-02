@@ -6,12 +6,13 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  addSalaryStructure, createEmployee, deleteEmployees, revealBankDetails, setEmployeeStatus, updateEmployee, upsertBankAccount, updateOwnProfile,
+  addSalaryStructure, createEmployee, deleteEmployees, deleteSalaryStructure, updateSalaryStructure, revealBankDetails, setEmployeeStatus, updateEmployee, upsertBankAccount, updateOwnProfile,
 } from "@/server/services/employees";
 import {
-  allowanceSchema, bankSchema, emergencyContactSchema, employeeSchema, EMPLOYMENT_STATUSES, formRows, money, optionalDate, optionalText, salarySchema,
+  allowanceSchema, bankSchema, emergencyContactSchema, employeeSchema, EMPLOYMENT_STATUSES, formRows, money, optionalDate, optionalText, salarySchema, salesMonthSchema,
 } from "@/lib/validation";
 import { deleteDocument } from "@/server/services/documents";
+import { deleteSalesMonth, saveSalesMonth } from "@/server/services/sales";
 import type { ActionResult } from "@/server/errors";
 
 function parseEmergencyContacts(fd: FormData) {
@@ -77,6 +78,47 @@ export async function addSalaryAction(employeeId: string, _prev: ActionResult | 
     await addSalaryStructure(actor, employeeId, input);
     revalidatePath(`/employees/${employeeId}`);
     return { ok: true, message: "Salary revision saved." };
+  });
+}
+
+export async function updateSalaryAction(employeeId: string, salaryId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    const raw = formObject(fd);
+    const input = salarySchema.parse({ ...raw, allowances: parseAllowances(fd) });
+    await updateSalaryStructure(actor, employeeId, z.string().min(1).max(40).parse(salaryId), input);
+    revalidatePath(`/employees/${employeeId}`);
+    return { ok: true, message: "Salary revision updated." };
+  });
+}
+
+export async function deleteSalaryAction(employeeId: string, salaryId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    await deleteSalaryStructure(actor, employeeId, z.string().min(1).max(40).parse(salaryId));
+    revalidatePath(`/employees/${employeeId}`);
+    return { ok: true, message: "Salary revision deleted." };
+  });
+}
+
+export async function saveSalesMonthAction(employeeId: string, salesMonthId: string | null, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    const id = salesMonthId ? z.string().min(1).max(40).parse(salesMonthId) : undefined;
+    await saveSalesMonth(actor, employeeId, salesMonthSchema.parse(formObject(fd)), id);
+    revalidatePath(`/employees/${employeeId}`);
+    revalidatePath("/dashboard");
+    return { ok: true, message: "Sales figures saved." };
+  });
+}
+
+export async function deleteSalesMonthAction(employeeId: string, salesMonthId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    await deleteSalesMonth(actor, employeeId, z.string().min(1).max(40).parse(salesMonthId));
+    revalidatePath(`/employees/${employeeId}`);
+    revalidatePath("/dashboard");
+    return { ok: true, message: "Sales month deleted." };
   });
 }
 
