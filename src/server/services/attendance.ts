@@ -260,7 +260,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     const enforceMinimum = (date: string) => !!flexibleFrom && date >= flexibleFrom;
     const own = punches.filter((p) => p.employeeId === emp.id).map((p) => p.punchedAt);
     if (flexible) {
-      for (const [wd, list] of groupFlexiblePunches(own)) byDate.set(wd, list);
+      for (const [wd, list] of groupFlexiblePunches(own, flexibleFrom)) byDate.set(wd, list);
     } else {
       for (const p of own) {
         const wd = workDateOf(p, shift, dayShift);

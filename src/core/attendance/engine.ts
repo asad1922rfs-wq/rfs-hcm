@@ -184,20 +184,33 @@ export const FLEXIBLE_DAY_SPAN_MIN = 20 * 60;
  * Group punches into flexible work days: the first punch opens a day on its local (PKT) date; every punch up to
  * FLEXIBLE_DAY_SPAN_MIN after that opening punch belongs to the same work date. Returns work date → punches.
  */
-export function groupFlexiblePunches(punches: readonly Date[]): Map<string, Date[]> {
+/** After a day already has a sign-out, a punch on a later date at least this long after the last one starts a new day. */
+const FLEXIBLE_NEW_DAY_GAP_MIN = 4 * 60;
+
+export function groupFlexiblePunches(punches: readonly Date[], flexibleFrom: string | null = null): Map<string, Date[]> {
   const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());
   const out = new Map<string, Date[]>();
-  let open: { date: string; at: number } | null = null;
+  let open: { date: string; at: number; last: number; count: number } | null = null;
   for (const p of sorted) {
-    if (!open || p.getTime() - open.at > FLEXIBLE_DAY_SPAN_MIN * 60_000) open = { date: toLocal(p).date, at: p.getTime() };
-    (out.get(open.date) ?? out.set(open.date, []).get(open.date)!).push(p);
+    const date = toLocal(p).date;
+    const startsNewDay =
+      !open
+      || p.getTime() - open.at > FLEXIBLE_DAY_SPAN_MIN * 60_000
+      // A credited day (before flexible hours start) never swallows punches from the first enforced day onwards.
+      || (!!flexibleFrom && open.date < flexibleFrom && date >= flexibleFrom)
+      // Signed in and out already: a punch on a later date after a real gap is the next day's sign-in.
+      || (open.count >= 2 && date > open.date && p.getTime() - open.last >= FLEXIBLE_NEW_DAY_GAP_MIN * 60_000);
+    if (startsNewDay) open = { date, at: p.getTime(), last: p.getTime(), count: 0 };
+    open!.last = p.getTime();
+    open!.count++;
+    (out.get(open!.date) ?? out.set(open!.date, []).get(open!.date)!).push(p);
   }
   return out;
 }
 
 /** Work date of a single instant for a flexible employee, given their other punches (see groupFlexiblePunches). */
-export function flexibleWorkDateOf(instant: Date, punches: readonly Date[]): string {
-  for (const [date, list] of groupFlexiblePunches([...punches, instant])) if (list.some((p) => p.getTime() === instant.getTime())) return date;
+export function flexibleWorkDateOf(instant: Date, punches: readonly Date[], flexibleFrom: string | null = null): string {
+  for (const [date, list] of groupFlexiblePunches([...punches, instant], flexibleFrom)) if (list.some((p) => p.getTime() === instant.getTime())) return date;
   return toLocal(instant).date;
 }
 

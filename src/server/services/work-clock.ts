@@ -37,7 +37,7 @@ export async function todayWorkClock(employeeId: string): Promise<WorkClock | nu
   const recent = remote
     ? await db.rawPunch.findMany({ where: { employeeId, punchedAt: { gte: new Date(now.getTime() - 2 * 86_400_000), lte: now } }, select: { punchedAt: true } })
     : [];
-  const workDate = remote ? flexibleWorkDateOf(now, recent.map((p) => p.punchedAt)) : workDateOf(now, shift);
+  const workDate = remote ? flexibleWorkDateOf(now, recent.map((p) => p.punchedAt), employee?.flexibleFrom ? employee.flexibleFrom.toISOString().slice(0, 10) : null) : workDateOf(now, shift);
   const rule = ruleForDate(shift, workDate);
   // Remote employees never see shift timing; the 9h minimum is enforced from their flexible-hours date.
   const flexible = remote;

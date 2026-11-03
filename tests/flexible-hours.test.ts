@@ -45,3 +45,18 @@ describe("flexible work-date grouping", () => {
     expect(flexibleWorkDateOf(at("2026-11-03", 19), [at("2026-11-02", 22)])).toBe("2026-11-03");
   });
 });
+
+describe("flexible grouping boundaries", () => {
+  const at = (s: string) => new Date(Date.parse(`${s.replace(" ", "T")}Z`) - 5 * 3_600_000);
+  it("a punch before flexible hours start never pulls the first enforced day into it", () => {
+    const g = groupFlexiblePunches([at("2026-11-02 23:49:00"), at("2026-11-03 08:11:00"), at("2026-11-03 14:40:00")], "2026-11-03");
+    expect([...g.keys()]).toEqual(["2026-11-02", "2026-11-03"]);
+    expect(g.get("2026-11-03")!.length).toBe(2);
+  });
+  it("after a sign-out, a punch next day after a gap starts a new day; overnight work still groups", () => {
+    const g = groupFlexiblePunches([at("2026-11-04 09:00:00"), at("2026-11-04 18:00:00"), at("2026-11-05 09:05:00")]);
+    expect([...g.keys()]).toEqual(["2026-11-04", "2026-11-05"]);
+    const night = groupFlexiblePunches([at("2026-11-04 22:00:00"), at("2026-11-05 07:00:00")]);
+    expect([...night.keys()]).toEqual(["2026-11-04"]);
+  });
+});
