@@ -136,6 +136,9 @@ export async function relinkEmployeePunches(employeeId: string, deviceUserId: st
  * Record a sign-in or sign-out from the dashboard at the server's current time. The first punch of the work day
  * is the check-in and the last the check-out, exactly as with machine punches.
  */
+/** A sign-out this soon after the sign-in is taken as a double click on Sign in. */
+const SIGN_OUT_DOUBLE_CLICK_MS = 20_000;
+
 export async function recordWebPunch(actor: Actor) {
   if (!actor.employeeId) throw new AppError("Your account is not linked to an employee record.");
   const employee = await db.employee.findUnique({
@@ -155,12 +158,13 @@ export async function recordWebPunch(actor: Actor) {
   }
   const last = await db.rawPunch.findFirst({ where: { employeeId: employee.id }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } });
   const lastAt = last && last.punchedAt <= now ? last.punchedAt : null;
-  // A repeat click within the double-click window is not an error: the earlier punch already counts.
-  if (lastAt && !webPunchBlockReason(employee, null, now) && webPunchBlockReason(employee, lastAt, now)) {
-    return { punchedAt: lastAt, alreadyRecorded: true };
-  }
-  const blocked = webPunchBlockReason(employee, lastAt, now);
+  // A repeat click within the double-click window is not an error: the earlier punch already counts. A deliberate
+  // sign-out (confirmed) right after the sign-in only needs a short guard against a double click on Sign in.
+  const signingOut = todays === 1;
+  const gapMs = signingOut ? SIGN_OUT_DOUBLE_CLICK_MS : WEB_PUNCH_MIN_GAP_MS;
+  const blocked = webPunchBlockReason(employee, null, now);
   if (blocked) throw new AppError(blocked);
+  if (lastAt && now.getTime() - lastAt.getTime() < gapMs) return { punchedAt: lastAt, alreadyRecorded: true };
 
   const punchedAt = new Date(Math.floor(now.getTime() / 1000) * 1000);
   const punch = await db.rawPunch.create({
