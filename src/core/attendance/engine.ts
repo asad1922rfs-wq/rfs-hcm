@@ -127,15 +127,18 @@ export function excuseAdjusted(result: DayResult, adj: { checkIn: Date | null; c
 }
 
 /** Drop punches within DUPLICATE_WINDOW_MIN of the previously kept punch. */
-export function dedupePunches(punches: readonly Date[]): Date[] {
+export function dedupePunches(punches: readonly Date[], windowMs = DUPLICATE_WINDOW_MIN * 60_000): Date[] {
   const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());
   const out: Date[] = [];
   for (const p of sorted) {
     const last = out[out.length - 1];
-    if (!last || p.getTime() - last.getTime() >= DUPLICATE_WINDOW_MIN * 60_000) out.push(p);
+    if (!last || p.getTime() - last.getTime() >= windowMs) out.push(p);
   }
   return out;
 }
+
+/** Flexible (web) punches are deliberate clicks: only a double click within this window is merged. */
+const FLEXIBLE_DUPLICATE_WINDOW_MS = 20_000;
 
 /**
  * `inProgress`: the work day has not ended yet (today). A single punch then means "checked in"
@@ -220,7 +223,7 @@ export function flexibleWorkDateOf(instant: Date, punches: readonly Date[], flex
  * or Present while `inProgress`.
  */
 export function computeFlexibleDay(punches: readonly Date[], enforceMinimum: boolean, inProgress = false, minMinutes = FLEXIBLE_MIN_WORK_MINUTES): DayResult | null {
-  const kept = dedupePunches(punches);
+  const kept = dedupePunches(punches, FLEXIBLE_DUPLICATE_WINDOW_MS);
   const first = kept[0];
   if (!first) return null;
   const base = { firstIn: first, punchCount: kept.length, lateMinutes: 0, earlyLeaveMinutes: 0 };
