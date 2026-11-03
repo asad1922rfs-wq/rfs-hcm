@@ -100,7 +100,7 @@ export default async function DevicesPage() {
                       <TableCell><Status lastSeenAt={d.lastSeenAt} active={d.isActive} /></TableCell>
                       <TableCell className="hidden md:table-cell">{formatDateTime(d.lastSeenAt)}</TableCell>
                       <TableCell className="hidden md:table-cell">{formatDateTime(d.lastPunchAt)}</TableCell>
-                      <TableCell className="hidden lg:table-cell">{d.agent?.name ?? "—"}</TableCell>
+                      <TableCell className="hidden lg:table-cell">{d.directPush ? "Direct to website" : d.agent?.name ?? "—"}</TableCell>
                       <TableCell className="space-x-1 whitespace-nowrap text-right">
                         <SyncNowButton deviceId={d.id} disabled={!d.isActive} />
                         <RecordDialog
@@ -112,6 +112,10 @@ export default async function DevicesPage() {
                           fields={[
                             { kind: "text", name: "name", label: "Name", defaultValue: d.name ?? "", hint: "e.g. Main entrance" },
                             { kind: "checkbox", name: "isActive", label: "Accept punches from this device", defaultChecked: d.isActive },
+                            {
+                              kind: "checkbox", name: "directPush", label: "Direct to website (no office PC)", defaultChecked: d.directPush,
+                              hint: "On the machine: Comm → Cloud Server → Server Address rfstech.online, Port 443, HTTPS on (or Port 80, HTTPS off).",
+                            },
                           ]}
                         />
                       </TableCell>

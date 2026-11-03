@@ -37,8 +37,8 @@ export async function resyncAction(deviceId: string): Promise<ActionResult> {
 export async function updateDeviceAction(deviceId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   return runAction(async () => {
     const input = z
-      .object({ name: z.string().trim().max(80).optional(), isActive: z.boolean() })
-      .parse({ name: (fd.get("name") as string) || undefined, isActive: fd.get("isActive") === "on" });
+      .object({ name: z.string().trim().max(80).optional(), isActive: z.boolean(), directPush: z.boolean() })
+      .parse({ name: (fd.get("name") as string) || undefined, isActive: fd.get("isActive") === "on", directPush: fd.get("directPush") === "on" });
     await updateDevice(await requireActor(), deviceId, input);
     revalidatePath("/settings/devices");
     return { ok: true, message: "Device saved." };

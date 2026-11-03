@@ -430,6 +430,10 @@ model AttendanceDevice {
   agentId      String?
   agent        SyncAgent? @relation(fields: [agentId], references: [id])
   isActive     Boolean    @default(true)
+  /// Pushes straight to the website (/iclock) instead of through an office sync agent.
+  directPush   Boolean    @default(false)
+  /// ADMS ATTLOG stamp last acknowledged for a direct device.
+  attlogStamp  String?    @db.VarChar(40)
   lastSeenAt   DateTime?
   lastPunchAt  DateTime?
   createdAt    DateTime   @default(now())
@@ -445,9 +449,12 @@ enum AgentCommandStatus {
 /// Work for an agent, e.g. ask a device to re-send attendance for a date range ("Sync now").
 model AgentCommand {
   id           String             @id @default(cuid())
-  agentId      String
-  agent        SyncAgent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Null for a command sent straight to a direct-push device.
+  agentId      String?
+  agent        SyncAgent?         @relation(fields: [agentId], references: [id], onDelete: Cascade)
   deviceSerial String
+  /// Numeric id used in the ADMS "C:<n>:" line for direct devices.
+  deviceCmdNo  Int?
   type         String
   payload      Json
   status       AgentCommandStatus @default(PENDING)
@@ -458,6 +465,7 @@ model AgentCommand {
   completedAt  DateTime?
 
   @@index([agentId, status])
+  @@index([deviceSerial, status])
 }
 
 /// Manual correction of a work day's check-in and/or check-out by an authorised user. Raw punches are never

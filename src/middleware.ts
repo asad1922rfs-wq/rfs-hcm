@@ -4,7 +4,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // The session itself is validated on the server for every page and action (src/server/auth/session.ts).
 
 // /api/v1/agent authenticates each request with the agent's HMAC signature instead of a session cookie.
-const PUBLIC_PATHS = ["/login", "/api/health", "/api/v1/agent", "/api/v1/company/logo", "/favicon-dot.svg"];
+// /iclock is the attendance machine itself (accepted only for devices switched to direct push).
+const PUBLIC_PATHS = ["/login", "/api/health", "/api/v1/agent", "/iclock", "/api/v1/company/logo", "/favicon-dot.svg"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

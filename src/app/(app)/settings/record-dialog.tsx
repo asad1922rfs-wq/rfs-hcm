@@ -10,7 +10,7 @@ import type { ActionResult } from "@/server/errors";
 
 export type DialogField =
   | { kind: "text"; name: string; label: string; required?: boolean; type?: string; hint?: string; defaultValue?: string; min?: number; max?: number }
-  | { kind: "checkbox"; name: string; label: string; defaultChecked?: boolean }
+  | { kind: "checkbox"; name: string; label: string; defaultChecked?: boolean; hint?: string }
   | { kind: "select"; name: string; label: string; options: { value: string; label: string }[]; defaultValue?: string };
 
 /** Create/edit dialog for simple settings records. Closes itself after a successful save. */
@@ -54,10 +54,13 @@ export function RecordDialog({
                 </NativeSelect>
               </Field>
             ) : f.kind === "checkbox" ? (
-              <Label key={f.name} className="flex items-center gap-2 font-normal">
-                <Checkbox name={f.name} defaultChecked={f.defaultChecked} />
-                {f.label}
-              </Label>
+              <div key={f.name} className="grid gap-1">
+                <Label className="flex items-center gap-2 font-normal">
+                  <Checkbox name={f.name} defaultChecked={f.defaultChecked} />
+                  {f.label}
+                </Label>
+                {f.hint && <p className="pl-6 text-xs text-muted-foreground">{f.hint}</p>}
+              </div>
             ) : (
               <Field
                 key={f.name}

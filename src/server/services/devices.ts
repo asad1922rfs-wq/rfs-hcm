@@ -157,11 +157,11 @@ export async function setAgentActive(actor: Actor, agentId: string, isActive: bo
   await recordAudit({ actor, action: isActive ? "agent.enable" : "agent.revoke", entityType: "SyncAgent", entityId: agentId });
 }
 
-export async function updateDevice(actor: Actor, deviceId: string, input: { name?: string; isActive: boolean }) {
+export async function updateDevice(actor: Actor, deviceId: string, input: { name?: string; isActive: boolean; directPush?: boolean }) {
   assertPermission(actor, "device.manage", "all");
   const before = await db.attendanceDevice.findUnique({ where: { id: deviceId } });
   if (!before) throw new NotFoundError("Device not found.");
-  const after = await db.attendanceDevice.update({ where: { id: deviceId }, data: { name: input.name ?? null, isActive: input.isActive } });
+  const after = await db.attendanceDevice.update({ where: { id: deviceId }, data: { name: input.name ?? null, isActive: input.isActive, directPush: input.directPush ?? before.directPush } });
   await recordAudit({ actor, action: "device.update", entityType: "AttendanceDevice", entityId: deviceId, before, after });
 }
 
@@ -169,12 +169,14 @@ export async function updateDevice(actor: Actor, deviceId: string, input: { name
 export async function requestResync(actor: Actor, deviceId: string, days = 35) {
   assertPermission(actor, "device.manage", "all");
   const device = await db.attendanceDevice.findUnique({ where: { id: deviceId } });
-  if (!device?.agentId) throw new AppError("This device has no sync agent yet.");
+  if (!device) throw new NotFoundError("Device not found.");
+  // A direct-push device picks its commands up from the website itself (agentId null).
+  if (!device.directPush && !device.agentId) throw new AppError("This device has no sync agent yet.");
   const to = toDateOnlyString(todayInPKT());
   const from = addDaysIso(to, -days);
   const payload: Prisma.InputJsonValue = { from: `${from} 00:00:00`, to: `${to} 23:59:59` };
   const cmd = await db.agentCommand.create({
-    data: { agentId: device.agentId, deviceSerial: device.serialNumber, type: "RESYNC_ATTLOG", payload, createdById: actor.userId },
+    data: { agentId: device.directPush ? null : device.agentId, deviceSerial: device.serialNumber, type: "RESYNC_ATTLOG", payload, createdById: actor.userId },
   });
   await recordAudit({ actor, action: "device.resync", entityType: "AttendanceDevice", entityId: deviceId, after: payload });
   return cmd;
