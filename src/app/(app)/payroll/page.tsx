@@ -9,12 +9,15 @@ import { todayInPKT } from "@/lib/dates";
 import { PrepareForm } from "./prepare-form";
 import { PayrollStatusBadge } from "./status-badge";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
+import { ConfirmDeleteButton } from "../employees/[id]/panels";
+import { deleteRunAction } from "./actions";
 
 export const metadata = { title: "Payroll" };
 
 export default async function PayrollPage() {
   const actor = await requirePagePermission("payroll.read", "all");
   const runs = await listRuns(actor);
+  const canDelete = can(actor, "payroll.prepare", "all");
   const today = todayInPKT();
   // Current month and the five before it.
   const months = Array.from({ length: 6 }, (_, i) => {
@@ -53,6 +56,7 @@ export default async function PayrollPage() {
                 <TableHead>Month</TableHead><TableHead>Status</TableHead>
                 <TableHead className="text-right">Employees</TableHead><TableHead className="text-right">Total net pay</TableHead>
                 <TableHead className="hidden md:table-cell">Last calculated</TableHead>
+                {canDelete && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -63,6 +67,16 @@ export default async function PayrollPage() {
                   <TableCell className="text-right tabular-nums">{r.employees}</TableCell>
                   <TableCell className="text-right font-medium tabular-nums"><PrivateAmount value={formatPKR(r.totalNet)} /></TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{formatDateTime(r.calculatedAt)}</TableCell>
+                  {canDelete && (
+                    <TableCell className="w-10 text-right">
+                      <ConfirmDeleteButton
+                        title={`Delete ${r.label} payroll`}
+                        description={`This removes the ${r.label} payroll and all ${r.employees} payslip calculations in it. You can prepare it again afterwards. Nothing in attendance or salaries changes; the deletion is recorded in the audit log.`}
+                        disabledReason={r.status === "DRAFT" || r.status === "SUBMITTED" ? null : "Approved or paid payroll can't be deleted"}
+                        onDelete={deleteRunAction.bind(null, r.id)}
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  addPayrollAdjustment, approveRun, markRunPaid, prepareRun, recalculateRun, rejectRun, removePayrollAdjustment, submitRun,
+  addPayrollAdjustment, approveRun, deleteRun, markRunPaid, prepareRun, recalculateRun, rejectRun, removePayrollAdjustment, submitRun,
 } from "@/server/services/payroll";
 import { money, requiredText } from "@/lib/validation";
 import type { ActionResult } from "@/server/errors";
@@ -31,6 +31,15 @@ function workflow(fn: (actor: Awaited<ReturnType<typeof requireActor>>) => Promi
     revalidatePath("/payroll");
     revalidatePath("/dashboard");
     return { ok: true as const, message };
+  });
+}
+
+export async function deleteRunAction(runId: string): Promise<ActionResult> {
+  return runAction<undefined>(async () => {
+    await deleteRun(await requireActor(), runId);
+    revalidatePath("/payroll");
+    revalidatePath("/dashboard");
+    return { ok: true as const, message: "Payroll deleted." };
   });
 }
 

@@ -229,6 +229,24 @@ export async function markRunPaid(actor: Actor, runId: string) {
   await recordAudit({ actor, action: "payroll.paid", entityType: "PayrollRun", entityId: runId, after: { month: monthName(run.year, run.month) } });
 }
 
+/**
+ * Delete a payroll that is not final yet (Draft, or awaiting Finance approval). Approved and paid payrolls are kept:
+ * their payslips and loan repayments are on record.
+ */
+export async function deleteRun(actor: Actor, runId: string) {
+  assertPermission(actor, "payroll.prepare", "all");
+  const run = await loadRun(runId);
+  if (run.status !== "DRAFT" && run.status !== "SUBMITTED") {
+    throw new AppError("Approved or paid payroll can't be deleted — its payslips and loan repayments are on record.");
+  }
+  const totals = await db.payrollItem.aggregate({ where: { runId }, _sum: { netPay: true }, _count: true });
+  await db.payrollRun.delete({ where: { id: runId } }); // items and their adjustments cascade
+  await recordAudit({
+    actor, action: "payroll.delete", entityType: "PayrollRun", entityId: runId,
+    before: { month: monthName(run.year, run.month), status: run.status, employees: totals._count, totalNet: totals._sum.netPay?.toString() ?? "0" },
+  });
+}
+
 // ───────────── Reads ─────────────
 
 export async function listRuns(actor: Actor) {
