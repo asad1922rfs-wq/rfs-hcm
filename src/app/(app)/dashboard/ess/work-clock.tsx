@@ -80,7 +80,7 @@ function WebPunchButton({ signedInAt, signedOutAt, minimumMinutes }: { signedInA
           }
           start(async () => {
             const r = await webPunchAction();
-            if (r.ok) toast.success(signingOut ? "Signed out." : "Signed in.");
+            if (r.ok) toast.success(r.message?.startsWith("Already") ? r.message : signingOut ? "Signed out." : "Signed in.");
             else toast.error(r.error);
           });
         }}

@@ -27,9 +27,10 @@ export async function importPunchesAction(_prev: ActionResult<ImportSummary> | n
 
 export async function webPunchAction(): Promise<ActionResult> {
   return runAction(async () => {
-    await recordWebPunch(await requireActor());
+    const r = await recordWebPunch(await requireActor());
     revalidatePath("/dashboard");
     revalidatePath("/attendance");
-    return { ok: true, message: "Recorded." };
+    const time = r.punchedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Karachi" });
+    return { ok: true, message: r.alreadyRecorded ? `Already recorded at ${time} — no need to click again.` : "Recorded." };
   });
 }

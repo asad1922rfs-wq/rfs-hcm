@@ -145,7 +145,12 @@ export async function recordWebPunch(actor: Actor) {
   if (!employee) throw new AppError("Your employee record was not found.");
   const now = new Date();
   const last = await db.rawPunch.findFirst({ where: { employeeId: employee.id }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } });
-  const blocked = webPunchBlockReason(employee, last && last.punchedAt <= now ? last.punchedAt : null, now);
+  const lastAt = last && last.punchedAt <= now ? last.punchedAt : null;
+  // A repeat click within the double-click window is not an error: the earlier punch already counts.
+  if (lastAt && !webPunchBlockReason(employee, null, now) && webPunchBlockReason(employee, lastAt, now)) {
+    return { punchedAt: lastAt, alreadyRecorded: true };
+  }
+  const blocked = webPunchBlockReason(employee, lastAt, now);
   if (blocked) throw new AppError(blocked);
 
   const punchedAt = new Date(Math.floor(now.getTime() / 1000) * 1000);
@@ -162,7 +167,7 @@ export async function recordWebPunch(actor: Actor) {
   const date = toDateOnlyString(todayInPKT(punchedAt));
   await recomputeAttendance({ employeeIds: [employee.id], from: addDaysIso(date, -1), to: date });
   await recordAudit({ actor, action: "attendance.web_punch", entityType: "RawPunch", entityId: punch.id, after: { employeeId: employee.id, punchedAt } });
-  return { punchedAt };
+  return { punchedAt, alreadyRecorded: false };
 }
 
 // ───────────── Recalculation ─────────────
