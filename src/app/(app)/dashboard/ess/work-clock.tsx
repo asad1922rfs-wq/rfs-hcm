@@ -55,14 +55,14 @@ export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; 
   );
 }
 
-/**
- * Every click records a punch at the server's time: the first of the day is the sign-in, the last the sign-out
- * (so signing out again after a sign-out moves the sign-out to now).
- */
+/** One sign-in and one sign-out per day, at the server's time. After signing out the day is closed. */
 function WebPunchButton({ signedInAt, signedOutAt, minimumMinutes }: { signedInAt: string | null; signedOutAt: string | null; minimumMinutes: number | null }) {
   const [pending, start] = useTransition();
   const signedIn = !!signedInAt;
   const signingOut = signedIn;
+  if (signedOutAt) {
+    return <p className="mt-3 rounded-md bg-muted px-3 py-2 text-center text-sm text-muted-foreground">Signed out at {time12(signedOutAt)} — see you tomorrow.</p>;
+  }
   return (
     <div className="mt-3 grid gap-1.5">
       <Button
@@ -86,9 +86,8 @@ function WebPunchButton({ signedInAt, signedOutAt, minimumMinutes }: { signedInA
         }}
       >
         {signingOut ? <LogOut className="size-4" /> : <LogIn className="size-4" />}
-        {!signedIn ? "Sign in" : signedOutAt ? "Sign out again" : "Sign out"}
+        {!signedIn ? "Sign in" : "Sign out"}
       </Button>
-      {signedOutAt && <p className="text-center text-xs text-muted-foreground">Signed out at {time12(signedOutAt)} · signing out again moves it to now</p>}
     </div>
   );
 }

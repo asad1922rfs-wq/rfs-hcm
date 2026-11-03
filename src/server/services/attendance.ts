@@ -4,10 +4,10 @@ import { db } from "@/server/db";
 import { recordAudit } from "@/server/audit";
 import { AppError } from "@/server/errors";
 import { assertPermission, type Actor } from "@/server/auth/session";
-import { addDaysIso, applyAdjustment, computeDay, computeFlexibleDay, excuseAdjusted, FLEXIBLE_DAY_SPAN_MIN, groupFlexiblePunches, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
+import { addDaysIso, applyAdjustment, computeDay, computeFlexibleDay, excuseAdjusted, FLEXIBLE_DAY_SPAN_MIN, flexibleWorkDateOf, groupFlexiblePunches, localMidnight, ruleForDate, workDateOf, type DayAwareShift } from "@/core/attendance/engine";
 import { parsePunchFile, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { applyFullWaiver, applyLateWaiver, applyWorkFromHome, TRUSTED_REASONS } from "@/core/attendance/waiver";
-import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId } from "@/core/attendance/web-punch";
+import { pktLocalString, webPunchBlockReason, webPunchDeviceUserId, WEB_PUNCH_MIN_GAP_MS } from "@/core/attendance/web-punch";
 import { todayInPKT, toDateOnlyString } from "@/lib/dates";
 import { attendanceStartOf, trackedFrom, weekendOf } from "@/server/json-fields";
 import { holidayDatesBetween } from "@/server/services/holidays";
@@ -140,10 +140,19 @@ export async function recordWebPunch(actor: Actor) {
   if (!actor.employeeId) throw new AppError("Your account is not linked to an employee record.");
   const employee = await db.employee.findUnique({
     where: { id: actor.employeeId },
-    select: { id: true, workMode: true, status: true, deviceUserId: true },
+    select: { id: true, workMode: true, status: true, deviceUserId: true, flexibleFrom: true },
   });
   if (!employee) throw new AppError("Your employee record was not found.");
   const now = new Date();
+  // One sign-in and one sign-out per work day: a closed day takes no more web punches.
+  const recent = await db.rawPunch.findMany({ where: { employeeId: employee.id, punchedAt: { gte: new Date(now.getTime() - 2 * 86_400_000), lte: now } }, select: { punchedAt: true } });
+  const flexibleFrom = employee.flexibleFrom ? toDateOnlyString(employee.flexibleFrom) : null;
+  const today = flexibleWorkDateOf(now, recent.map((p) => p.punchedAt), flexibleFrom);
+  const todays = (groupFlexiblePunches(recent.map((p) => p.punchedAt), flexibleFrom).get(today) ?? []).length;
+  const lastToday = recent.map((p) => p.punchedAt).sort((a, b) => b.getTime() - a.getTime())[0];
+  if (todays >= 2 && !(lastToday && now.getTime() - lastToday.getTime() < WEB_PUNCH_MIN_GAP_MS)) {
+    throw new AppError("You have already signed in and out today. You can sign in again tomorrow.");
+  }
   const last = await db.rawPunch.findFirst({ where: { employeeId: employee.id }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } });
   const lastAt = last && last.punchedAt <= now ? last.punchedAt : null;
   // A repeat click within the double-click window is not an error: the earlier punch already counts.
