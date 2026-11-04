@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/server/db";
 import { ingestPunches } from "@/server/services/attendance";
+import { refreshRecentAttendance } from "@/server/services/attendance-refresh";
 import { punchFromDeviceRecord, type ParsedPunch } from "@/core/attendance/punch-parser";
 import { commandLine, handshakeText, parseAttlog, parseInfo } from "@/core/attendance/adms";
 
@@ -66,6 +67,7 @@ export async function handleAdms(method: string, path: string, params: URLSearch
   }
 
   if (path === "/iclock/getrequest") {
+    refreshRecentAttendance();
     const info = params.get("INFO");
     await touch(info ? { firmware: info.split(",")[0]?.slice(0, 100) || undefined } : {});
     const pending = await db.agentCommand.findMany({
