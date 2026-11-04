@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FormMessage, SubmitButton } from "@/components/form";
-import { createAgentAction, resyncAction, setAgentActiveAction } from "./actions";
+import { createAgentAction, deleteAgentAction, resyncAction, setAgentActiveAction } from "./actions";
 
 export function CreateAgentDialog({ serverUrl }: { serverUrl: string }) {
   const [state, action] = useActionState(createAgentAction, null);
@@ -71,6 +71,29 @@ export function AgentToggle({ agentId, isActive }: { agentId: string; isActive: 
       }
     >
       {isActive ? "Revoke" : "Enable"}
+    </Button>
+  );
+}
+
+/** Shown only for a revoked agent. */
+export function DeleteAgentButton({ agentId, name }: { agentId: string; name: string }) {
+  const [pending, start] = useTransition();
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="text-destructive hover:text-destructive"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          if (!confirm(`Delete agent "${name}" permanently? Attendance already received is kept.`)) return;
+          const r = await deleteAgentAction(agentId);
+          if (r.ok) toast.success(r.message);
+          else toast.error(r.error);
+        })
+      }
+    >
+      Delete
     </Button>
   );
 }

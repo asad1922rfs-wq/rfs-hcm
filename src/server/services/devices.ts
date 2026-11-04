@@ -157,6 +157,19 @@ export async function setAgentActive(actor: Actor, agentId: string, isActive: bo
   await recordAudit({ actor, action: isActive ? "agent.enable" : "agent.revoke", entityType: "SyncAgent", entityId: agentId });
 }
 
+/** Delete a revoked agent. Its machines stay (unlinked); its queued commands go with it. */
+export async function deleteAgent(actor: Actor, agentId: string) {
+  assertPermission(actor, "device.manage", "all");
+  const agent = await db.syncAgent.findUnique({ where: { id: agentId } });
+  if (!agent) throw new NotFoundError("Agent not found.");
+  if (agent.isActive) throw new AppError("Revoke the agent before deleting it.");
+  await db.$transaction([
+    db.attendanceDevice.updateMany({ where: { agentId }, data: { agentId: null } }),
+    db.syncAgent.delete({ where: { id: agentId } }),
+  ]);
+  await recordAudit({ actor, action: "agent.delete", entityType: "SyncAgent", entityId: agentId, before: { name: agent.name } });
+}
+
 export async function updateDevice(actor: Actor, deviceId: string, input: { name?: string; isActive: boolean; directPush?: boolean }) {
   assertPermission(actor, "device.manage", "all");
   const before = await db.attendanceDevice.findUnique({ where: { id: deviceId } });

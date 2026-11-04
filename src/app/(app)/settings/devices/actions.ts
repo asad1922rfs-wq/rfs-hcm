@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { runAction } from "@/server/action";
-import { createAgent, requestResync, setAgentActive, updateDevice } from "@/server/services/devices";
+import { createAgent, deleteAgent, requestResync, setAgentActive, updateDevice } from "@/server/services/devices";
 import { requiredText } from "@/lib/validation";
 import type { ActionResult } from "@/server/errors";
 
@@ -23,6 +23,14 @@ export async function setAgentActiveAction(agentId: string, isActive: boolean): 
     await setAgentActive(await requireActor(), agentId, isActive);
     revalidatePath("/settings/devices");
     return { ok: true, message: isActive ? "Agent enabled." : "Agent revoked. It can no longer send data." };
+  });
+}
+
+export async function deleteAgentAction(agentId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await deleteAgent(await requireActor(), agentId);
+    revalidatePath("/settings/devices");
+    return { ok: true, message: "Agent deleted." };
   });
 }
 

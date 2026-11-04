@@ -8,7 +8,7 @@ import { EmptyState, PageHeader } from "@/components/common";
 import { formatDateTime } from "@/lib/format";
 import { RecordDialog } from "../record-dialog";
 import { updateDeviceAction } from "./actions";
-import { AgentToggle, CreateAgentDialog, SyncNowButton } from "./devices-client";
+import { AgentToggle, CreateAgentDialog, DeleteAgentButton, SyncNowButton } from "./devices-client";
 
 export const metadata = { title: "Biometric devices" };
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function DevicesPage() {
     <>
       <PageHeader
         title="Biometric devices"
-        description="ZKTeco machines push attendance (ADMS) to a sync agent on the office network, which forwards it here over HTTPS."
+        description="ZKTeco machines push attendance (ADMS) straight to this website, or through a sync agent on the office network."
         actions={<CreateAgentDialog serverUrl={appUrl()} />}
       />
 
@@ -60,7 +60,10 @@ export default async function DevicesPage() {
                       <TableCell className="hidden md:table-cell">{formatDateTime(a.lastSeenAt)}</TableCell>
                       <TableCell className="hidden md:table-cell tabular-nums">{a.outboxCount ?? "—"}</TableCell>
                       <TableCell className="hidden lg:table-cell">{a.version ?? "—"}</TableCell>
-                      <TableCell className="text-right"><AgentToggle agentId={a.id} isActive={a.isActive} /></TableCell>
+                      <TableCell className="whitespace-nowrap text-right">
+                        <AgentToggle agentId={a.id} isActive={a.isActive} />
+                        {!a.isActive && <DeleteAgentButton agentId={a.id} name={a.name} />}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
