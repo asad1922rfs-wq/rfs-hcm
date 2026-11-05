@@ -15,6 +15,18 @@ export function parseAttlog(serial: string, body: string): AdmsRecord[] {
   return out;
 }
 
+/**
+ * Move a machine time ("YYYY-MM-DD HH:mm[:ss]", Pakistan local) by `minutes`, but only for times at or after `from`
+ * (same format): earlier records were already taken while the machine clock itself carried the offset.
+ */
+export function shiftLocal(local: string, minutes: number, from: string): string {
+  if (!minutes || local < from) return local;
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(local);
+  if (!m) return local;
+  const t = new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +(m[6] ?? 0)) + minutes * 60_000);
+  return t.toISOString().slice(0, 19).replace("T", " ");
+}
+
 /** "~DeviceName=MB460,FWVersion=Ver 8.0.4.2,..." or newline/ampersand separated key=value pairs. */
 export function parseInfo(text: string): Record<string, string> {
   const info: Record<string, string> = {};

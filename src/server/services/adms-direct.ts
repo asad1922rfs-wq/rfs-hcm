@@ -3,15 +3,20 @@ import { db } from "@/server/db";
 import { ingestPunches } from "@/server/services/attendance";
 import { refreshRecentAttendance } from "@/server/services/attendance-refresh";
 import { punchFromDeviceRecord, type ParsedPunch } from "@/core/attendance/punch-parser";
-import { commandLine, handshakeText, parseAttlog, parseInfo } from "@/core/attendance/adms";
+import { commandLine, handshakeText, parseAttlog, parseInfo, shiftLocal } from "@/core/attendance/adms";
 
 // Direct ADMS: the attendance machine pushes straight to the website, no office PC.
 // Only machines an admin has switched to direct push (Biometric devices → Edit) and that are active are accepted;
 // any other serial number gets 403 and nothing is stored.
 
 const TIMEZONE_HOURS = 5; // PKT
-/** The machine sets its clock from our Date header: same offset the office agent used (machine 2 minutes behind). */
+/**
+ * Punches are recorded 2 minutes earlier than the machine shows (the office agent used to keep the machine clock itself
+ * 2 minutes behind; through the website the host always gives the machine real time).
+ */
 export const DEVICE_CLOCK_OFFSET_MINUTES = Number(process.env.ADMS_CLOCK_OFFSET_MINUTES ?? -2);
+/** Machine times before this were already stored as received; shifting them again on a re-sync would duplicate them. */
+const CLOCK_SHIFT_FROM = "2026-11-05 15:00:00";
 
 export type AdmsReply = { status: number; text: string };
 
@@ -45,7 +50,7 @@ export async function handleAdms(method: string, path: string, params: URLSearch
       const records = parseAttlog(serial, body);
       const punches: ParsedPunch[] = [];
       for (const r of records) {
-        const p = punchFromDeviceRecord(r);
+        const p = punchFromDeviceRecord({ ...r, local: shiftLocal(r.local, DEVICE_CLOCK_OFFSET_MINUTES, CLOCK_SHIFT_FROM) });
         if (p && p.punchedAt.getTime() <= Date.now() + 24 * 3_600_000) punches.push(p);
       }
       const { inserted } = await ingestPunches(punches, "AGENT");

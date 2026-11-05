@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandLine, handshakeText, parseAttlog, parseInfo } from "@/core/attendance/adms";
+import { commandLine, handshakeText, parseAttlog, parseInfo, shiftLocal } from "@/core/attendance/adms";
 
 describe("direct ADMS helpers", () => {
   it("parses ATTLOG lines and skips junk", () => {
@@ -8,6 +8,14 @@ describe("direct ADMS helpers", () => {
       { serial: "TTQ1", pin: "101", local: "2026-11-03 09:02:11", state: "0", verify: "1" },
       { serial: "TTQ1", pin: "122", local: "2026-11-03 18:05", state: "1", verify: "15" },
     ]);
+  });
+
+  it("shifts machine times by the clock offset from the cut-off on", () => {
+    const from = "2026-11-05 15:00:00";
+    expect(shiftLocal("2026-11-05 18:01:30", -2, from)).toBe("2026-11-05 17:59:30");
+    expect(shiftLocal("2026-11-06 00:01", -2, from)).toBe("2026-11-05 23:59:00");
+    expect(shiftLocal("2026-11-05 09:00:00", -2, from)).toBe("2026-11-05 09:00:00");
+    expect(shiftLocal("2026-11-05 18:00:00", 0, from)).toBe("2026-11-05 18:00:00");
   });
 
   it("parses device info", () => {
