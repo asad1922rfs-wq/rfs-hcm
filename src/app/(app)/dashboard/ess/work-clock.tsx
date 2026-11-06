@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { LogIn, LogOut, Timer } from "lucide-react";
 import { toast } from "sonner";
 import type { WorkClock } from "@/server/services/work-clock";
@@ -8,16 +9,33 @@ import { Button } from "@/components/ui/button";
 import { webPunchAction } from "@/app/(app)/attendance/actions";
 
 const time12 = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Karachi" });
+/** Today's date in Pakistan as "YYYY-MM-DD". */
+const todayPkt = () => new Date(Date.now() + 5 * 3_600_000).toISOString().slice(0, 10);
 const hm = (minutes: number) => `${Math.floor(minutes / 60)}h ${String(Math.floor(minutes % 60)).padStart(2, "0")}m`;
 
 /** Today's working time, counting up live from the sign-in until the sign-out. Remote employees sign in/out here. */
 export function WorkClockPanel({ clock, canPunch = false }: { clock: WorkClock; canPunch?: boolean }) {
+  const router = useRouter();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!clock.signIn || clock.signOut) return;
     const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
   }, [clock.signIn, clock.signOut]);
+
+  // A closed day from an earlier date (page left open overnight): fetch today's page instead of showing it.
+  // 4h after the sign-out matches the server's new-day rule, so a sign-out after midnight never loops.
+  const stale = !!clock.signOut && clock.workDate < todayPkt() && Date.now() - Date.parse(clock.signOut) >= 4 * 3_600_000;
+  useEffect(() => {
+    if (stale) router.refresh();
+  }, [stale, router]);
+  if (stale) {
+    return (
+      <div className="mt-5 w-full rounded-lg border bg-muted/40 px-4 py-3 text-left text-sm text-muted-foreground">
+        Loading today&apos;s work hours… <button type="button" className="underline" onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    );
+  }
 
   const worked = clock.signIn ? Math.max(0, ((clock.signOut ? Date.parse(clock.signOut) : now) - Date.parse(clock.signIn)) / 60_000) : 0;
   const pct = Math.min(100, Math.round((worked / clock.shiftMinutes) * 100));
