@@ -54,3 +54,9 @@ export function parseTimeOfDay(value: string): number {
 export function minuteToTimeInput(minute: number): string {
   return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
+
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+/** Sales targets and achieved sales are in US dollars. */
+export function formatUSD(value: Numeric): string {
+  return usd.format(typeof value === "number" ? value : Number(value.toString()));
+}

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Field, FormMessage, SubmitButton } from "@/components/form";
 import { EmptyState } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
-import { formatPKR } from "@/lib/format";
+import { formatPKR, formatUSD } from "@/lib/format";
 import { deleteSalesMonthAction, saveSalesMonthAction } from "../actions";
 import { ConfirmDeleteButton } from "./panels";
 
@@ -60,8 +60,8 @@ function SalesMonthDialog({ employeeId, row, defaultMonth }: { employeeId: strin
           <FormMessage state={state && !state.ok ? state : null} />
           <Field label="Month" name="month" type="month" defaultValue={row ? ymOf(row) : defaultMonth} required errors={fe?.month} />
           <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Target (PKR)" name="target" type="number" min={0} step="0.01" defaultValue={row?.target ?? ""} required errors={fe?.target} />
-            <Field label="Achieved (PKR)" name="achieved" type="number" min={0} step="0.01" defaultValue={row?.achieved ?? ""} required errors={fe?.achieved} />
+            <Field label="Target (USD)" name="target" type="number" min={0} step="0.01" defaultValue={row?.target ?? ""} required errors={fe?.target} />
+            <Field label="Achieved (USD)" name="achieved" type="number" min={0} step="0.01" defaultValue={row?.achieved ?? ""} required errors={fe?.achieved} />
             <Field label="Commission (PKR)" name="commission" type="number" min={0} step="0.01" defaultValue={row?.commission ?? ""} required errors={fe?.commission} />
           </div>
           <Field label="Note" name="note" defaultValue={row?.note ?? ""} errors={fe?.note} />
@@ -100,8 +100,8 @@ export function SalesPanel({ employeeId, rows, canManage, defaultMonth }: { empl
                 {rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="whitespace-nowrap">{MONTHS[r.month - 1]} {r.year}</TableCell>
-                    <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(r.target)} /></TableCell>
-                    <TableCell className="text-right tabular-nums"><PrivateAmount value={formatPKR(r.achieved)} /></TableCell>
+                    <TableCell className="text-right tabular-nums"><PrivateAmount value={formatUSD(r.target)} /></TableCell>
+                    <TableCell className="text-right tabular-nums"><PrivateAmount value={formatUSD(r.achieved)} /></TableCell>
                     <TableCell className="text-right tabular-nums">{r.percent === null ? "—" : `${r.percent}%`}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums"><PrivateAmount value={formatPKR(r.commission)} /></TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">{r.note ?? "—"}</TableCell>

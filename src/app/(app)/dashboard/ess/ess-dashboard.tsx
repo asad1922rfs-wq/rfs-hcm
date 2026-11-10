@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/common";
-import { formatDateTime, formatPKR } from "@/lib/format";
+import { formatDateTime, formatPKR, formatUSD } from "@/lib/format";
 import { formatHoursMinutes } from "@/core/attendance/month-calendar";
 import { initials } from "@/lib/utils";
 import { AttendanceFlagChart, AttendanceLegend, type ChartDay } from "./attendance-chart";
@@ -287,9 +287,9 @@ export function EssDashboard({ data, canImport, showApprovals, canRequestAttenda
               <p className="px-4 py-6 text-center text-sm text-muted-foreground">No sales target set for {monthName} yet.</p>
             ) : (
               <dl className="grid gap-3 px-4 py-3 text-sm">
-                <Row label="Target" value={<PrivateAmount value={formatPKR(s.sales.target)} />} />
+                <Row label="Target" value={<PrivateAmount value={formatUSD(s.sales.target)} />} />
                 <div className="grid gap-1.5">
-                  <Row label={`Achieved${s.sales.percent === null ? "" : ` (${s.sales.percent}%)`}`} value={<PrivateAmount value={formatPKR(s.sales.achieved)} />} />
+                  <Row label={`Achieved${s.sales.percent === null ? "" : ` (${s.sales.percent}%)`}`} value={<PrivateAmount value={formatUSD(s.sales.achieved)} />} />
                   {s.sales.percent !== null && (
                     <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={s.sales.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Achieved of target">
                       <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, s.sales.percent)}%` }} />
