@@ -11,6 +11,7 @@ import { Field, FormMessage, SubmitButton } from "@/components/form";
 import { EmptyState } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 import { formatPKR, formatUSD } from "@/lib/format";
+import { commissionFor, commissionPercent, DEFAULT_USD_RATE } from "@/core/sales/commission";
 import { deleteSalesMonthAction, saveSalesMonthAction } from "../actions";
 import { ConfirmDeleteButton } from "./panels";
 
@@ -34,6 +35,14 @@ function SalesMonthDialog({ employeeId, row, defaultMonth }: { employeeId: strin
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(saveSalesMonthAction.bind(null, employeeId, row?.id ?? null), null);
   const fe = state && !state.ok ? state.fieldErrors : undefined;
+  const [achieved, setAchieved] = useState(row ? String(row.achieved) : "");
+  const [rate, setRate] = useState(String(DEFAULT_USD_RATE));
+  const [commission, setCommission] = useState(row ? String(row.commission) : "");
+  const recalc = (a: string, r: string) => {
+    setAchieved(a);
+    setRate(r);
+    if (Number(a) > 0 && Number(r) > 0) setCommission(String(commissionFor(Number(a), Number(r))));
+  };
   useEffect(() => {
     if (state?.ok) {
       toast.success(state.message ?? "Sales figures saved.");
@@ -59,11 +68,17 @@ function SalesMonthDialog({ employeeId, row, defaultMonth }: { employeeId: strin
         <form action={action} className="grid gap-4">
           <FormMessage state={state && !state.ok ? state : null} />
           <Field label="Month" name="month" type="month" defaultValue={row ? ymOf(row) : defaultMonth} required errors={fe?.month} />
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Target (USD)" name="target" type="number" min={0} step="0.01" defaultValue={row?.target ?? ""} required errors={fe?.target} />
-            <Field label="Achieved (USD)" name="achieved" type="number" min={0} step="0.01" defaultValue={row?.achieved ?? ""} required errors={fe?.achieved} />
-            <Field label="Commission (PKR)" name="commission" type="number" min={0} step="0.01" defaultValue={row?.commission ?? ""} required errors={fe?.commission} />
+            <Field label="Achieved (USD)" name="achieved" type="number" min={0} step="0.01" value={achieved} onChange={(e) => recalc(e.target.value, rate)} required errors={fe?.achieved} />
+            <Field label="Dollar rate (PKR per $)" name="rate" type="number" min={0} step="0.01" value={rate} onChange={(e) => recalc(achieved, e.target.value)} />
+            <Field label="Commission (PKR)" name="commission" type="number" min={0} step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} required errors={fe?.commission} />
           </div>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            {Number(achieved) > 0 && Number(rate) > 0
+              ? `${commissionPercent(Number(achieved))}% of ${formatPKR(Number(achieved) * Number(rate))} (slab: up to $5,000 0% · $8,000 3% · $10,500 5% · $12,500 7% · above 10%). You can change the commission if needed.`
+              : "Commission fills in automatically from achieved sales and the dollar rate."}
+          </p>
           <Field label="Note" name="note" defaultValue={row?.note ?? ""} errors={fe?.note} />
           <SubmitButton>Save</SubmitButton>
         </form>
