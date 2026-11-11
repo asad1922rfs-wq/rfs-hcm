@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { formObject, runAction } from "@/server/action";
 import {
-  cancelLoan, clearMonthInstallment, createLoan, decideLoan, deleteLoan, recordCashRepayment, setMonthInstallment,
+  cancelLoan, clearMonthInstallment, createLoan, decideLoan, deleteLoan, recordCashRepayment, setMonthInstallment, updateCashRepayment,
 } from "@/server/services/loans";
 import { MAX_LOAN_AMOUNT } from "@/core/loans/schedule";
 import { optionalText, requiredText } from "@/lib/validation";
@@ -117,5 +117,21 @@ export async function cashRepaymentAction(id: string, _prev: ActionResult | null
     await recordCashRepayment(await requireActor(), id, cashSchema.parse(formObject(fd)));
     refresh(id);
     return { ok: true, message: "Cash repayment recorded." };
+  });
+}
+
+export async function editCashRepaymentAction(repaymentId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const loanId = await updateCashRepayment(await requireActor(), repaymentId, cashSchema.parse(formObject(fd)));
+    refresh(loanId);
+    return { ok: true, message: "Cash repayment updated." };
+  });
+}
+
+export async function deleteCashRepaymentAction(repaymentId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const loanId = await updateCashRepayment(await requireActor(), repaymentId, null);
+    refresh(loanId);
+    return { ok: true, message: "Cash repayment removed." };
   });
 }

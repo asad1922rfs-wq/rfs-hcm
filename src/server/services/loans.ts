@@ -289,6 +289,46 @@ export async function recordCashRepayment(actor: Actor, loanId: string, input: {
   });
 }
 
+/**
+ * Correct or remove a cash repayment entered by mistake. The loan completes when nothing is left, and goes back to
+ * running when a completed loan has a balance again. Payroll repayments are fixed by the payroll, not here.
+ */
+export async function updateCashRepayment(actor: Actor, repaymentId: string, input: { paidOn: string; amount: number; note?: string } | null) {
+  assertPermission(actor, "loan.manage", "all");
+  const existing = await db.loanRepayment.findUnique({ where: { id: repaymentId } });
+  if (!existing) throw new NotFoundError("Repayment not found.");
+  if (existing.source !== "CASH") throw new AppError("Payroll deductions can only be changed through that month's payroll.");
+  const loan = await loadLoan(existing.loanId);
+  if (loan.status !== "APPROVED" && loan.status !== "COMPLETED") throw new AppError(`This loan is ${loan.status.toLowerCase()}; its repayments can no longer be changed.`);
+  assertNotOwn(actor, loan);
+  const others = { ...loan, repayments: loan.repayments.filter((r) => r.id !== repaymentId) };
+  const balance = balanceOf(others); // what is owed without this repayment
+
+  let data: { amount: Prisma.Decimal; paidOn: Date; year: number; month: number; note: string | null } | null = null;
+  if (input) {
+    const paidOn = parseDateOnly(input.paidOn);
+    if (paidOn > todayInPKT()) throw new AppError("The payment date cannot be in the future.");
+    if (!Number.isInteger(input.amount) || input.amount <= 0) throw new AppError("Enter a whole-rupee amount.");
+    if (input.amount > balance) throw new AppError(`The balance without this payment is only Rs ${balance.toLocaleString("en-PK")}.`);
+    data = { amount: new Prisma.Decimal(input.amount), paidOn, year: paidOn.getUTCFullYear(), month: paidOn.getUTCMonth() + 1, note: input.note?.trim() || null };
+  }
+  const balanceAfter = balance - (input?.amount ?? 0);
+  const status = balanceAfter === 0 ? "COMPLETED" : "APPROVED";
+  await db.$transaction(async (tx) => {
+    if (data) await tx.loanRepayment.update({ where: { id: repaymentId }, data });
+    else await tx.loanRepayment.delete({ where: { id: repaymentId } });
+    if (status !== loan.status) await tx.loan.update({ where: { id: loan.id }, data: { status } });
+    await recordAudit(
+      {
+        actor, action: data ? "loan.cash_repayment_edit" : "loan.cash_repayment_delete", entityType: "Loan", entityId: loan.id,
+        before: { ...existing, amount: Number(existing.amount) }, after: data ? { ...data, amount: input!.amount, balanceAfter } : { balanceAfter },
+      },
+      tx,
+    );
+  });
+  return loan.id;
+}
+
 // ───────────── Payroll ─────────────
 
 /** Installments due (entered or repeated), per employee for a payroll month (oldest loan first), before the net-pay cap. */

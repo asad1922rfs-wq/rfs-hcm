@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Ban, Check, Loader2, Plus, RotateCcw, Save, Trash2, Wallet, X } from "lucide-react";
+import { Ban, Check, Loader2, Pencil, Plus, RotateCcw, Save, Trash2, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormMessage, NativeSelect, SubmitButton } from "@/components/form";
 import { formatPKR } from "@/lib/format";
-import { cancelLoanAction, cashRepaymentAction, clearMonthInstallmentAction, createLoanAction, decideLoanAction, deleteLoanAction, monthInstallmentAction } from "./actions";
+import { cancelLoanAction, cashRepaymentAction, clearMonthInstallmentAction, createLoanAction, decideLoanAction, deleteCashRepaymentAction, deleteLoanAction, editCashRepaymentAction, monthInstallmentAction } from "./actions";
 
 type Option = { id: string; label: string };
 
@@ -255,5 +255,56 @@ export function MonthInstallmentField({ id, month, label, entered, placeholder, 
         </Button>
       )}
     </form>
+  );
+}
+
+/** Correct or remove a cash repayment entered by mistake. */
+export function EditCashRepaymentDialog({ repayment, today }: { repayment: { id: string; paidOn: string; amount: number; note: string | null }; today: string }) {
+  const [open, setOpen] = useState(false);
+  const [state, action] = useActionState(editCashRepaymentAction.bind(null, repayment.id), null);
+  const [removing, remove] = useTransition();
+  const fe = state && !state.ok ? state.fieldErrors : undefined;
+  useEffect(() => {
+    if (state?.ok) {
+      toast.success(state.message);
+      setOpen(false);
+    }
+  }, [state]);
+  const onRemove = () => {
+    if (!window.confirm(`Remove this cash repayment of ${formatPKR(repayment.amount)}? The loan balance goes back up by that amount.`)) return;
+    remove(async () => {
+      const r = await deleteCashRepaymentAction(repayment.id);
+      if (r.ok) {
+        toast.success(r.message);
+        setOpen(false);
+      } else toast.error(r.error);
+    });
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-7" aria-label="Edit cash repayment"><Pencil className="size-3.5" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit cash repayment</DialogTitle>
+          <DialogDescription>Fix the date or amount, or remove it if it was entered by mistake. The balance updates to match.</DialogDescription>
+        </DialogHeader>
+        <form action={action} className="grid gap-4">
+          {state && !state.ok && <FormMessage state={state} />}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Paid on" name="paidOn" type="date" max={today} defaultValue={repayment.paidOn} required errors={fe?.paidOn} />
+            <Field label="Amount (Rs)" name="amount" type="number" min={1} step={1} defaultValue={repayment.amount} required errors={fe?.amount} />
+          </div>
+          <Field label="Note" name="note" defaultValue={repayment.note ?? ""} errors={fe?.note} />
+          <div className="flex gap-2">
+            <SubmitButton className="flex-1">Save</SubmitButton>
+            <Button type="button" variant="outline" className="text-destructive" onClick={onRemove} disabled={removing}>
+              <Trash2 className="size-4" /> Remove
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

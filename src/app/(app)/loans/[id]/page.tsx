@@ -10,7 +10,7 @@ import { DetailList, EmptyState, StatCard } from "@/components/common";
 import { PrivacyGroup, PrivacyToggle, PrivateAmount } from "@/components/private-amount";
 import { formatDate, formatDateTime, formatPKR } from "@/lib/format";
 import { toDateOnlyString, todayInPKT } from "@/lib/dates";
-import { CancelLoanButton, DeleteLoanButton, CashRepaymentDialog, DecideLoanButtons, MonthInstallmentField } from "../loans-client";
+import { CancelLoanButton, DeleteLoanButton, CashRepaymentDialog, DecideLoanButtons, EditCashRepaymentDialog, MonthInstallmentField } from "../loans-client";
 import { LoanStatusBadge } from "../status-badge";
 
 export const metadata = { title: "Loan" };
@@ -26,6 +26,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
   const running = loan.status === "APPROVED";
   const manageSchedule = canManage && running && !loan.isOwn;
   const today = toDateOnlyString(todayInPKT());
+  const canFixCash = canManage && !loan.isOwn && (running || loan.status === "COMPLETED");
 
   return (
     <PrivacyGroup>
@@ -55,7 +56,7 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Loan amount" value={<PrivateAmount value={formatPKR(loan.amount)} />} hint={`Given ${formatDate(loan.givenOn ?? loan.createdAt)}`} icon={HandCoins} />
-        <StatCard label="Repaid" value={<PrivateAmount value={formatPKR(loan.repaid)} />} icon={Wallet} tone="success" />
+        <StatCard label="Paid" value={<PrivateAmount value={formatPKR(loan.repaid)} />} icon={Wallet} tone="success" />
         <StatCard label={loan.status === "CANCELLED" ? "Written off" : "Outstanding"} value={<PrivateAmount value={formatPKR(loan.status === "CANCELLED" ? loan.amount - loan.repaid : loan.outstanding)} />} icon={HandCoins} tone="warning" />
         <StatCard
           label="Next deduction"
@@ -141,7 +142,12 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
                         <span className="block text-xs text-muted-foreground">{[r.source === "CASH" ? r.note : null, r.by].filter(Boolean).join(" · ")}</span>
                       ) : null}
                     </span>
-                    <PrivateAmount value={formatPKR(r.amount)} />
+                    <span className="flex items-center gap-1">
+                      <PrivateAmount value={formatPKR(r.amount)} />
+                      {canFixCash && r.source === "CASH" && (
+                        <EditCashRepaymentDialog repayment={{ id: r.id, paidOn: toDateOnlyString(r.paidOn), amount: r.amount, note: r.note }} today={today} />
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
