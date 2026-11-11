@@ -43,9 +43,9 @@ export function handshakeText(serial: string, attlogStamp: string | null, timezo
     `ATTLOGStamp=${attlogStamp ?? "None"}`,
     "OPERLOGStamp=9999",
     "ATTPHOTOStamp=None",
-    "ErrorDelay=60",
-    // Seconds between command polls (getrequest). Punches still arrive at once (Realtime=1); 60 keeps hosting load low.
-    "Delay=60",
+    "ErrorDelay=120",
+    // Seconds between command polls (getrequest). Punches still arrive at once (Realtime=1); 5 minutes keeps hosting traffic low.
+    "Delay=300",
     "TransTimes=00:00;12:00",
     "TransInterval=1",
     "TransFlag=TransData AttLog",
