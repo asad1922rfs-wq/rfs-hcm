@@ -504,3 +504,100 @@ export async function payrollRegisterWorkbook(actor: Actor, runId: string): Prom
   await recordAudit({ actor, action: "report.payroll_register", entityType: "PayrollRun", entityId: run.id, after: { month: label, fullBankDetails: fullBank } });
   return toFile(wb, `rfs-payroll-register-${run.year}-${mm(run.month)}.xlsx`);
 }
+
+// ───────────── Loans ─────────────
+
+const LOAN_STATUS_LABEL: Record<string, string> = { PENDING: "Pending", APPROVED: "Running", COMPLETED: "Completed", REJECTED: "Rejected", CANCELLED: "Cancelled" };
+const LOAN_REPORT_STATUSES = ["APPROVED", "COMPLETED", "CANCELLED"] as const; // rejected / withdrawn requests moved no money
+
+/** Loan report: one row per loan (amount, paid, outstanding) and every repayment, for all visible employees or one. */
+export async function loanReportWorkbook(actor: Actor, filter: { employeeId?: string; departmentId?: string }): Promise<ReportFile> {
+  assertPermission(actor, "loan.read", "team");
+  const scope = await scopedEmployeeWhere(actor, "loan.read");
+  const loans = await db.loan.findMany({
+    where: {
+      status: { in: [...LOAN_REPORT_STATUSES] },
+      employee: { AND: [scope, filter.employeeId ? { id: filter.employeeId } : {}, filter.departmentId ? { departmentId: filter.departmentId } : {}] },
+    },
+    include: {
+      employee: { select: { employeeCode: true, fullName: true, department: { select: { name: true } } } },
+      repayments: { orderBy: { paidOn: "asc" } },
+    },
+    orderBy: [{ employee: { fullName: "asc" } }, { createdAt: "asc" }],
+  });
+  if (filter.employeeId && loans.length === 0) throw new NotFoundError("No loans found for this employee.");
+  const company = await companyName();
+
+  const loanCols: Column[] = [
+    { header: "Employee Code", key: "code", width: 14 },
+    { header: "Name", key: "name", width: 28 },
+    { header: "Department", key: "dept", width: 18 },
+    { header: "Date Given", key: "given", width: 14 },
+    { header: "Status", key: "status", width: 12 },
+    { header: "Loan Amount", key: "amount", width: 14, numFmt: PKR },
+    { header: "Paid via Payroll", key: "payroll", width: 14, numFmt: PKR },
+    { header: "Paid in Cash", key: "cash", width: 14, numFmt: PKR },
+    { header: "Total Paid", key: "paid", width: 14, numFmt: PKR },
+    { header: "Outstanding", key: "outstanding", width: 14, numFmt: PKR },
+    { header: "Installments", key: "count", width: 10 },
+    { header: "Last Payment", key: "last", width: 14 },
+    { header: "Reason", key: "reason", width: 36 },
+  ];
+  const loanRows = loans.map((l) => {
+    const sum = (src?: string) => l.repayments.filter((r) => !src || r.source === src).reduce((s, r) => s + Number(r.amount), 0);
+    const paid = sum();
+    const last = l.repayments.at(-1);
+    return {
+      code: l.employee.employeeCode, name: l.employee.fullName, dept: l.employee.department?.name ?? "", given: formatDate(l.givenOn ?? l.createdAt),
+      status: LOAN_STATUS_LABEL[l.status] ?? l.status, amount: Number(l.amount), payroll: sum("PAYROLL"), cash: sum("CASH"), paid,
+      outstanding: l.status === "APPROVED" ? Math.max(0, Number(l.amount) - paid) : 0, count: l.repayments.length,
+      last: last ? formatDate(last.paidOn) : "", reason: l.reason,
+    };
+  });
+
+  const repCols: Column[] = [
+    { header: "Employee Code", key: "code", width: 14 },
+    { header: "Name", key: "name", width: 28 },
+    { header: "Loan Given", key: "given", width: 14 },
+    { header: "Paid On", key: "paidOn", width: 14 },
+    { header: "For Month", key: "month", width: 16 },
+    { header: "Method", key: "source", width: 10 },
+    { header: "Amount", key: "amount", width: 14, numFmt: PKR },
+    { header: "Balance After", key: "balance", width: 14, numFmt: PKR },
+    { header: "Note", key: "note", width: 32 },
+  ];
+  const repRows = loans.flatMap((l) => {
+    let balance = Number(l.amount);
+    return l.repayments.map((r) => {
+      balance -= Number(r.amount);
+      return {
+        code: l.employee.employeeCode, name: l.employee.fullName, given: formatDate(l.givenOn ?? l.createdAt), paidOn: formatDate(r.paidOn),
+        month: monthName(r.year, r.month), source: r.source === "PAYROLL" ? "Payroll" : "Cash", amount: Number(r.amount),
+        balance: Math.max(0, balance), note: r.note ?? "",
+      };
+    });
+  });
+
+  const one = filter.employeeId ? loans[0]!.employee : null;
+  const period = one ? `${one.fullName} (${one.employeeCode})` : "All employees";
+  const wb = newWorkbook();
+  const ws = addSheet(wb, "Loans", { company, title: "Loan Report", period }, loanCols);
+  addRows(ws, loanCols, loanRows);
+  addTotals(ws, loanCols, loanRows, "code", ["amount", "payroll", "cash", "paid", "outstanding"]);
+  const ws2 = addSheet(wb, "Repayments", { company, title: "Loan Repayments", period }, repCols);
+  addRows(ws2, repCols, repRows);
+  addTotals(ws2, repCols, repRows, "code", ["amount"]);
+  const today = toDateOnlyString(new Date());
+  return toFile(wb, one ? `rfs-loans-${one.employeeCode}-${today}.xlsx` : `rfs-loans-${today}.xlsx`);
+}
+
+/** Employees with a loan, for the report's employee picker. */
+export async function loanEmployeeOptions(actor: Actor) {
+  if (!can(actor, "loan.read", "team")) return [];
+  const scope = await scopedEmployeeWhere(actor, "loan.read");
+  return db.employee.findMany({
+    where: { AND: [scope, { loans: { some: { status: { in: [...LOAN_REPORT_STATUSES] } } } }] },
+    select: { id: true, fullName: true, employeeCode: true },
+    orderBy: { fullName: "asc" },
+  });
+}

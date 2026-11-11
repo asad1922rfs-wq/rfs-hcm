@@ -1,6 +1,6 @@
 import { Download } from "lucide-react";
 import { can, requirePagePermission } from "@/server/auth/session";
-import { attendanceSummaryRows, MAX_DAILY_RANGE_DAYS, payrollRunOptions, reportEmployeeOptions } from "@/server/services/reports";
+import { attendanceSummaryRows, loanEmployeeOptions, MAX_DAILY_RANGE_DAYS, payrollRunOptions, reportEmployeeOptions } from "@/server/services/reports";
 import { listDepartments } from "@/server/services/organisation";
 import { monthName } from "@/server/services/payroll";
 import { Button } from "@/components/ui/button";
@@ -42,10 +42,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   // Attendance and leave reports need only report.read; payroll also needs payroll.read.
   const showLeave = true;
 
-  const [departments, employees, runs] = await Promise.all([
+  const showLoans = can(actor, "loan.read", "team");
+  const [departments, employees, runs, loanEmployees] = await Promise.all([
     listDepartments(),
     reportEmployeeOptions(actor),
     showPayroll ? payrollRunOptions(actor) : [],
+    showLoans ? loanEmployeeOptions(actor) : [],
   ]);
   const department = departments.some((d) => d.id === sp.department) ? sp.department : undefined;
   const preview = await attendanceSummaryRows(actor, year, monthNo, department);
@@ -94,6 +96,29 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </form>
           </CardContent>
         </Card>
+
+        {showLoans && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Loan report</CardTitle>
+              <CardDescription>
+                Every loan with amount, paid through payroll, paid in cash and outstanding balance, plus a sheet of all repayments. For all employees or one employee. {XLSX_HINT}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form action="/api/v1/reports/loans" method="get" className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                <DepartmentSelect departments={departments} id="loan-department" />
+                <Field label="Employee" name="employee" id="loan-employee">
+                  <NativeSelect id="loan-employee" name="employee" defaultValue="">
+                    <option value="">All employees</option>
+                    {loanEmployees.map((e) => <option key={e.id} value={e.id}>{e.fullName} ({e.employeeCode})</option>)}
+                  </NativeSelect>
+                </Field>
+                <DownloadButton />
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
         {showLeave && (
           <Card>
