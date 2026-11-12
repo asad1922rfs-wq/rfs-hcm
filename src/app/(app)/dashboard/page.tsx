@@ -31,7 +31,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <AutoRefresh seconds={300} />
+      <AutoRefresh seconds={60} />
       <nav className="mb-5 flex gap-1 border-b" aria-label="Dashboard views">
         <TabLink href="/dashboard?view=ess" active={view === "ess"}>ESS dashboard</TabLink>
         {canSeeHr && <TabLink href="/dashboard?view=hr" active={view === "hr"}>HR overview</TabLink>}
