@@ -12,15 +12,10 @@ import { parseDateOnly, todayInPKT, toDateOnlyString } from "@/lib/dates";
 
 const d0 = (s: string) => new Date(`${s}T00:00:00Z`);
 
-/** Fixed-date national holidays of Pakistan. Eid, Muharram and Milad follow the moon and are added by hand. */
+/** Fixed-date company holidays (HR notice). Eid-ul-Fitr (3), Eid-ul-Adha (3), 10 Muharram and 12 Rabi-ul-Awwal follow the moon and are added by hand. */
 export const PAKISTAN_FIXED_HOLIDAYS: readonly { monthDay: string; name: string }[] = [
-  { monthDay: "02-05", name: "Kashmir Day" },
-  { monthDay: "03-23", name: "Pakistan Day" },
-  { monthDay: "05-01", name: "Labour Day" },
-  { monthDay: "05-28", name: "Youm-e-Takbeer" },
   { monthDay: "08-14", name: "Independence Day" },
-  { monthDay: "11-09", name: "Iqbal Day" },
-  { monthDay: "12-25", name: "Quaid-e-Azam Day" },
+  { monthDay: "12-25", name: "Quaid-e-Azam Day / Christmas" },
 ];
 
 /** Holidays in [from, to] as date → name. */

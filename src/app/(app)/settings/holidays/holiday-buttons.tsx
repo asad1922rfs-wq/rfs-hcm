@@ -41,7 +41,7 @@ export function LoadPakistanHolidaysButton({ year }: { year: number }) {
         })
       }
     >
-      Load Pakistan public holidays for {year}
+      Load fixed company holidays for {year}
     </Button>
   );
 }

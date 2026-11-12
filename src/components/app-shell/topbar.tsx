@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { Bell, CheckCircle2, KeyRound, LogOut, Menu, Monitor, Moon, Sun, UserCircle, XCircle } from "lucide-react";
+import { Bell, CalendarDays, CheckCircle2, KeyRound, LogOut, Menu, Monitor, Moon, Sun, UserCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -136,7 +136,7 @@ function NotificationsBell({ notifications }: { notifications: Notifications }) 
         {decided.map((d) => (
           <DropdownMenuItem key={d.id} asChild>
             <Link href={d.href} className="flex items-start gap-2">
-              {d.approved ? <CheckCircle2 className="mt-0.5 text-emerald-600" /> : <XCircle className="mt-0.5 text-destructive" />}
+              {d.holiday ? <CalendarDays className="mt-0.5 text-sky-600" /> : d.approved ? <CheckCircle2 className="mt-0.5 text-emerald-600" /> : <XCircle className="mt-0.5 text-destructive" />}
               <span className={`text-sm ${d.unread && !seen ? "font-medium" : "text-muted-foreground"}`}>{d.text}</span>
             </Link>
           </DropdownMenuItem>
