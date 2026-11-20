@@ -59,4 +59,8 @@ describe("flexible grouping boundaries", () => {
     const night = groupFlexiblePunches([at("2026-11-04 22:00:00"), at("2026-11-05 07:00:00")]);
     expect([...night.keys()]).toEqual(["2026-11-04"]);
   });
+  it("a lone punch (sign-in added by request) never swallows the next morning's sign-in", () => {
+    const g = groupFlexiblePunches([at("2026-11-19 17:13:00"), at("2026-11-20 08:02:00")]);
+    expect([...g.keys()]).toEqual(["2026-11-19", "2026-11-20"]);
+  });
 });

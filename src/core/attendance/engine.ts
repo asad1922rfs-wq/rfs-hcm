@@ -189,6 +189,11 @@ export const FLEXIBLE_DAY_SPAN_MIN = 20 * 60;
  */
 /** After a day already has a sign-out, a punch on a later date at least this long after the last one starts a new day. */
 const FLEXIBLE_NEW_DAY_GAP_MIN = 4 * 60;
+/**
+ * A day with only one punch (e.g. the sign-in was added by an approved request, so only the sign-out is a raw
+ * punch): a punch on a later date at least this long after it is the next day's sign-in, not that day's sign-out.
+ */
+const FLEXIBLE_LONE_PUNCH_GAP_MIN = 14 * 60;
 
 export function groupFlexiblePunches(punches: readonly Date[], flexibleFrom: string | null = null): Map<string, Date[]> {
   const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());
@@ -202,7 +207,8 @@ export function groupFlexiblePunches(punches: readonly Date[], flexibleFrom: str
       // A credited day (before flexible hours start) never swallows punches from the first enforced day onwards.
       || (!!flexibleFrom && open.date < flexibleFrom && date >= flexibleFrom)
       // Signed in and out already: a punch on a later date after a real gap is the next day's sign-in.
-      || (open.count >= 2 && date > open.date && p.getTime() - open.last >= FLEXIBLE_NEW_DAY_GAP_MIN * 60_000);
+      || (open.count >= 2 && date > open.date && p.getTime() - open.last >= FLEXIBLE_NEW_DAY_GAP_MIN * 60_000)
+      || (date > open.date && p.getTime() - open.last >= FLEXIBLE_LONE_PUNCH_GAP_MIN * 60_000);
     if (startsNewDay) open = { date, at: p.getTime(), last: p.getTime(), count: 0 };
     open!.last = p.getTime();
     open!.count++;
