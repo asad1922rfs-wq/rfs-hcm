@@ -132,8 +132,10 @@ export function applyAdjustment(machine: readonly Date[], adj: { checkIn: Date |
  * check-in is never late, an adjusted check-out is never early; a late arrival on the machine still counts when
  * only the check-out was changed. With neither time changed, the whole day counts as Present.
  */
-export function excuseAdjusted(result: DayResult, adj: { checkIn: Date | null; checkOut: Date | null }, shift: ShiftRule): DayResult {
+export function excuseAdjusted(result: DayResult, adj: { checkIn: Date | null; checkOut: Date | null; category?: string }, shift: ShiftRule): DayResult {
   const wholeDay = !adj.checkIn && !adj.checkOut;
+  // A whole-day load-shedding / early-off excuse shows as Early (not deducted), with no late or early minutes.
+  if (wholeDay && adj.category === "LOAD_SHEDDING" && result.status !== "MISSING") return { ...result, status: "EARLY", lateMinutes: 0, earlyLeaveMinutes: 0 };
   const lateMinutes = wholeDay || adj.checkIn ? 0 : result.lateMinutes;
   const earlyLeaveMinutes = wholeDay || adj.checkOut ? 0 : result.earlyLeaveMinutes;
   const status: DayResult["status"] = wholeDay
