@@ -116,7 +116,7 @@ export async function findOrCreateDesignation(actor: Actor, title: string) {
 export function listShifts() {
   return db.shift.findMany({
     orderBy: { name: "asc" },
-    include: { dayOverrides: { orderBy: { weekday: "asc" } }, _count: { select: { employees: { where: { status: "ACTIVE" } } } } },
+    include: { dayOverrides: { orderBy: { weekday: "asc" } }, dateRules: { orderBy: { fromDay: "asc" } }, _count: { select: { employees: { where: { status: "ACTIVE" } } } } },
   });
 }
 
@@ -157,6 +157,36 @@ export async function deleteShiftOverride(actor: Actor, overrideId: string) {
   if (!before) throw new NotFoundError("Day timing not found.");
   await db.shiftDayOverride.delete({ where: { id: overrideId } });
   await recordAudit({ actor, action: "shift.day_override_removed", entityType: "Shift", entityId: before.shiftId, before });
+  await recomputeForShift(before.shiftId);
+}
+
+const ruleDays = (r: { fromDay: number; toDay: number }) =>
+  Array.from({ length: 31 }, (_, i) => i + 1).filter((d) => (r.fromDay <= r.toDay ? d >= r.fromDay && d <= r.toDay : d >= r.fromDay || d <= r.toDay));
+
+/** Grace (and optional timing) for a range of days in every month, e.g. days 1–15. Past attendance is recalculated. */
+export async function saveShiftDateRule(
+  actor: Actor,
+  input: { shiftId: string; fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number },
+) {
+  assertPermission(actor, "settings.organisation", "all");
+  if ([input.fromDay, input.toDay].some((d) => !Number.isInteger(d) || d < 1 || d > 31)) throw new AppError("Days must be between 1 and 31.");
+  if ((input.startMinute === null) !== (input.endMinute === null)) throw new AppError("Give both start and end time, or leave both empty.");
+  if (input.startMinute !== null && input.startMinute === input.endMinute) throw new AppError("Start and end cannot be the same.");
+  const wanted = new Set(ruleDays(input));
+  const existing = await db.shiftDateRule.findMany({ where: { shiftId: input.shiftId } });
+  const clash = existing.find((r) => ruleDays(r).some((d) => wanted.has(d)));
+  if (clash) throw new AppError(`Days ${clash.fromDay}–${clash.toDay} already have a rule. Remove it first or choose other days.`);
+  const after = await db.shiftDateRule.create({ data: input });
+  await recordAudit({ actor, action: "shift.date_rule", entityType: "Shift", entityId: input.shiftId, after });
+  await recomputeForShift(input.shiftId);
+}
+
+export async function deleteShiftDateRule(actor: Actor, ruleId: string) {
+  assertPermission(actor, "settings.organisation", "all");
+  const before = await db.shiftDateRule.findUnique({ where: { id: ruleId } });
+  if (!before) throw new NotFoundError("Date rule not found.");
+  await db.shiftDateRule.delete({ where: { id: ruleId } });
+  await recordAudit({ actor, action: "shift.date_rule_removed", entityType: "Shift", entityId: before.shiftId, before });
   await recomputeForShift(before.shiftId);
 }
 

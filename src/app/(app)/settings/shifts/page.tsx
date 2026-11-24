@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/common";
 import { formatMinuteOfDay, minuteToTimeInput } from "@/lib/format";
-import { saveShiftAction, saveShiftOverrideAction } from "../actions";
+import { saveShiftAction, saveShiftDateRuleAction, saveShiftOverrideAction } from "../actions";
 import { RecordDialog, type DialogField } from "../record-dialog";
 import { RemoveOverrideButton } from "./override-remove";
 
@@ -67,6 +67,18 @@ export default async function ShiftsPage() {
                       ))}
                     </ul>
                   )}
+                  {s.dateRules.length > 0 && (
+                    <ul className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                      {s.dateRules.map((r) => (
+                        <li key={r.id} className="flex items-center gap-1">
+                          <span className="font-medium text-foreground">Days {r.fromDay}–{r.toDay}:</span>
+                          {r.startMinute !== null && r.endMinute !== null ? `${formatMinuteOfDay(r.startMinute)} – ${formatMinuteOfDay(r.endMinute)} · ` : ""}
+                          grace {r.graceMinutes} min
+                          <RemoveOverrideButton id={r.id} label={`days ${r.fromDay}–${r.toDay}`} dateRule />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">{s.graceMinutes} min</TableCell>
                 <TableCell className="hidden sm:table-cell text-right tabular-nums">{s._count.employees}</TableCell>
@@ -82,6 +94,20 @@ export default async function ShiftsPage() {
                       { kind: "text", name: "start", label: "Start time", type: "time", required: true, defaultValue: "15:00" },
                       { kind: "text", name: "end", label: "End time", type: "time", required: true, defaultValue: "00:00", hint: "00:00 = midnight (12:00 AM)." },
                       { kind: "text", name: "graceMinutes", label: "Grace (minutes)", type: "number", min: 0, max: 240, hint: `Leave empty to use the shift's ${s.graceMinutes} minutes.` },
+                    ]}
+                  />
+                  <RecordDialog
+                    title={`Date-range grace · ${s.name}`}
+                    description="A different grace (and optionally timing) for certain days of every month, e.g. days 1–15 grace 30 min and days 16–31 grace 10 min. Past attendance is recalculated."
+                    trigger="Date grace"
+                    triggerVariant="ghost"
+                    action={saveShiftDateRuleAction.bind(null, s.id)}
+                    fields={[
+                      { kind: "text", name: "fromDay", label: "From day of month", type: "number", required: true, min: 1, max: 31, defaultValue: "1" },
+                      { kind: "text", name: "toDay", label: "To day of month", type: "number", required: true, min: 1, max: 31, defaultValue: "15", hint: "31 = until month end. From 25 to 5 runs across the month end." },
+                      { kind: "text", name: "graceMinutes", label: "Grace (minutes)", type: "number", required: true, min: 0, max: 240, defaultValue: String(s.graceMinutes) },
+                      { kind: "text", name: "start", label: "Start time (optional)", type: "time", hint: "Leave both times empty to keep the normal shift hours." },
+                      { kind: "text", name: "end", label: "End time (optional)", type: "time" },
                     ]}
                   />
                   <RecordDialog title="Edit shift" trigger="Edit" triggerVariant="ghost" id={s.id} action={saveShiftAction} fields={shiftFields(s)} />

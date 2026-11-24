@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { passwordSchema } from "@/server/auth/password";
 import { formObject, runAction } from "@/server/action";
-import { deleteShiftOverride, saveDepartment, saveDesignation, saveShift, saveShiftOverride, updateCompany } from "@/server/services/organisation";
+import { deleteShiftDateRule, deleteShiftOverride, saveDepartment, saveShiftDateRule, saveDesignation, saveShift, saveShiftOverride, updateCompany } from "@/server/services/organisation";
 import { createLoginsInBulk, createUser, resetRoleToDefault, type BulkLogin, resetUserPassword, updateRolePermissions, updateUser } from "@/server/services/users";
 import { optionalId, optionalText, requiredText } from "@/lib/validation";
 import { parseTimeOfDay } from "@/lib/format";
@@ -114,6 +114,30 @@ export async function deleteShiftOverrideAction(overrideId: string): Promise<Act
     revalidatePath("/settings/shifts");
     revalidatePath("/dashboard");
     return { ok: true, message: "Day timing removed and attendance recalculated." };
+  });
+}
+
+export async function saveShiftDateRuleAction(shiftId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    const actor = await requireActor();
+    const optTime = (label: string) => z.preprocess((v) => (v === "" || v == null ? null : v), time(label).nullable());
+    const day = z.coerce.number().int().min(1, "Days are 1–31.").max(31, "Days are 1–31.");
+    const input = z
+      .object({ fromDay: day, toDay: day, start: optTime("Start time"), end: optTime("End time"), graceMinutes: z.coerce.number().int().min(0).max(240) })
+      .parse(formObject(fd));
+    await saveShiftDateRule(actor, { shiftId, fromDay: input.fromDay, toDay: input.toDay, startMinute: input.start, endMinute: input.end, graceMinutes: input.graceMinutes });
+    revalidatePath("/settings/shifts");
+    revalidatePath("/dashboard");
+    return { ok: true, message: "Date-range grace saved and attendance recalculated." };
+  });
+}
+
+export async function deleteShiftDateRuleAction(ruleId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await deleteShiftDateRule(await requireActor(), ruleId);
+    revalidatePath("/settings/shifts");
+    revalidatePath("/dashboard");
+    return { ok: true, message: "Date-range grace removed and attendance recalculated." };
   });
 }
 

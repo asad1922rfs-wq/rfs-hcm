@@ -84,8 +84,8 @@ export async function getDashboardData(actor: Actor) {
       }
     : null;
 
-  const defaultShift = await db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true } });
-  const shiftToday = defaultShift ? ruleForDate({ ...defaultShift, overrides: defaultShift.dayOverrides }, toDateOnlyString(today)) : null;
+  const defaultShift = await db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, dateRules: true } });
+  const shiftToday = defaultShift ? ruleForDate({ ...defaultShift, overrides: defaultShift.dayOverrides, dateRules: defaultShift.dateRules }, toDateOnlyString(today)) : null;
 
   return {
     today,

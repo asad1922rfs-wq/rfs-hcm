@@ -56,14 +56,27 @@ export function addDaysIso(date: string, days: number): string {
 /** A shift with optional weekday-specific timings (e.g. Friday 3 PM – 12 AM). */
 export type DayAwareShift = ShiftRule & {
   overrides?: readonly { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[];
+  /** Day-of-month ranges with their own grace (and optionally timing). */
+  dateRules?: readonly DateRule[];
 };
 
-/** The timing that applies on a given work date. Overrides without their own grace use the shift's grace. */
+export type DateRule = { fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number };
+
+/** The date rule covering a day of the month (fromDay > toDay wraps past month end). */
+export function dateRuleFor(rules: readonly DateRule[] | undefined, day: number): DateRule | undefined {
+  return rules?.find((r) => (r.fromDay <= r.toDay ? day >= r.fromDay && day <= r.toDay : day >= r.fromDay || day <= r.toDay));
+}
+
+/**
+ * The timing that applies on a given work date. Timing: weekday override, else the date rule's own timing, else
+ * the shift's. Grace: the date rule's, else the weekday override's, else the shift's.
+ */
 export function ruleForDate(shift: DayAwareShift, date: string): ShiftRule {
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  const o = shift.overrides?.find((x) => x.weekday === weekday);
-  if (o) return { startMinute: o.startMinute, endMinute: o.endMinute, graceMinutes: o.graceMinutes ?? shift.graceMinutes };
-  return { startMinute: shift.startMinute, endMinute: shift.endMinute, graceMinutes: shift.graceMinutes };
+  const d = new Date(`${date}T00:00:00Z`);
+  const o = shift.overrides?.find((x) => x.weekday === d.getUTCDay());
+  const r = dateRuleFor(shift.dateRules, d.getUTCDate());
+  const timing = o ?? (r && r.startMinute !== null && r.endMinute !== null ? { startMinute: r.startMinute, endMinute: r.endMinute } : shift);
+  return { startMinute: timing.startMinute, endMinute: timing.endMinute, graceMinutes: r?.graceMinutes ?? o?.graceMinutes ?? shift.graceMinutes };
 }
 
 /**
