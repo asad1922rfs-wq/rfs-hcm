@@ -206,11 +206,11 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const [company, holidays, defaultShift, employees, latestPunch, earliestPunch] = await Promise.all([
     db.company.findFirst({ select: { weekendDays: true, attendanceStartDate: true } }),
     holidayDatesBetween(opts.from, to),
-    db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, dateRules: true } }),
+    db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, graceSteps: true } }),
     db.employee.findMany({
       // Remote employees may have no biometric ID — their web sign-ins are linked directly.
       where: { OR: [{ deviceUserId: { not: null } }, { workMode: "REMOTE" }], ...(opts.employeeIds ? { id: { in: opts.employeeIds } } : {}) },
-      select: { id: true, joiningDate: true, exitDate: true, workMode: true, flexibleFrom: true, shift: { include: { dayOverrides: true, dateRules: true } } },
+      select: { id: true, joiningDate: true, exitDate: true, workMode: true, flexibleFrom: true, shift: { include: { dayOverrides: true, graceSteps: true } } },
     }),
     // Device coverage comes from machine punches only: one remote sign-in does not mean the device has synced.
     db.rawPunch.findFirst({ where: { source: { not: "WEB" } }, orderBy: { punchedAt: "desc" }, select: { punchedAt: true } }),
@@ -240,7 +240,7 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
     },
     select: {
       employeeId: true, workDate: true, checkIn: true, checkOut: true, excused: true, category: true,
-      shift: { include: { dayOverrides: true, dateRules: true } },
+      shift: { include: { dayOverrides: true, graceSteps: true } },
     },
   });
   // Approved leave (working days only): shown as LEAVE when there are no punches that day.
@@ -266,11 +266,11 @@ export async function recomputeAttendance(opts: { from: string; to: string; empl
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   for (const emp of employees) {
     const s = emp.shift ?? defaultShift;
-    const shift: DayAwareShift = s ? { ...s, overrides: s.dayOverrides, dateRules: s.dateRules } : FALLBACK_SHIFT;
+    const shift: DayAwareShift = s ? { ...s, overrides: s.dayOverrides, graceSteps: s.graceSteps } : FALLBACK_SHIFT;
     const byDate = new Map<string, Date[]>();
     const dayShift = (date: string): DayAwareShift | undefined => {
       const chosen = adjustments.get(`${emp.id}|${date}`)?.shift;
-      return chosen ? { ...chosen, overrides: chosen.dayOverrides, dateRules: chosen.dateRules } : undefined;
+      return chosen ? { ...chosen, overrides: chosen.dayOverrides, graceSteps: chosen.graceSteps } : undefined;
     };
     // Remote (work from home): flexible hours — no shift timing, a 9-hour minimum from `flexibleFrom`.
     const flexible = emp.workMode === "REMOTE";

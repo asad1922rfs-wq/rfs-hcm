@@ -116,7 +116,7 @@ export async function findOrCreateDesignation(actor: Actor, title: string) {
 export function listShifts() {
   return db.shift.findMany({
     orderBy: { name: "asc" },
-    include: { dayOverrides: { orderBy: { weekday: "asc" } }, dateRules: { orderBy: { fromDay: "asc" } }, _count: { select: { employees: { where: { status: "ACTIVE" } } } } },
+    include: { dayOverrides: { orderBy: { weekday: "asc" } }, graceSteps: { orderBy: { effectiveFrom: "desc" } }, _count: { select: { employees: { where: { status: "ACTIVE" } } } } },
   });
 }
 
@@ -160,39 +160,11 @@ export async function deleteShiftOverride(actor: Actor, overrideId: string) {
   await recomputeForShift(before.shiftId);
 }
 
-const ruleDays = (r: { fromDay: number; toDay: number }) =>
-  Array.from({ length: 31 }, (_, i) => i + 1).filter((d) => (r.fromDay <= r.toDay ? d >= r.fromDay && d <= r.toDay : d >= r.fromDay || d <= r.toDay));
-
-/** Grace (and optional timing) for a range of days in every month, e.g. days 1–15. Past attendance is recalculated. */
-export async function saveShiftDateRule(
-  actor: Actor,
-  input: { shiftId: string; fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number },
-) {
-  assertPermission(actor, "settings.organisation", "all");
-  if ([input.fromDay, input.toDay].some((d) => !Number.isInteger(d) || d < 1 || d > 31)) throw new AppError("Days must be between 1 and 31.");
-  if ((input.startMinute === null) !== (input.endMinute === null)) throw new AppError("Give both start and end time, or leave both empty.");
-  if (input.startMinute !== null && input.startMinute === input.endMinute) throw new AppError("Start and end cannot be the same.");
-  const wanted = new Set(ruleDays(input));
-  const existing = await db.shiftDateRule.findMany({ where: { shiftId: input.shiftId } });
-  const clash = existing.find((r) => ruleDays(r).some((d) => wanted.has(d)));
-  if (clash) throw new AppError(`Days ${clash.fromDay}–${clash.toDay} already have a rule. Remove it first or choose other days.`);
-  const after = await db.shiftDateRule.create({ data: input });
-  await recordAudit({ actor, action: "shift.date_rule", entityType: "Shift", entityId: input.shiftId, after });
-  await recomputeForShift(input.shiftId);
-}
-
-export async function deleteShiftDateRule(actor: Actor, ruleId: string) {
-  assertPermission(actor, "settings.organisation", "all");
-  const before = await db.shiftDateRule.findUnique({ where: { id: ruleId } });
-  if (!before) throw new NotFoundError("Date rule not found.");
-  await db.shiftDateRule.delete({ where: { id: ruleId } });
-  await recordAudit({ actor, action: "shift.date_rule_removed", entityType: "Shift", entityId: before.shiftId, before });
-  await recomputeForShift(before.shiftId);
-}
-
 export async function saveShift(
   actor: Actor,
   input: { id?: string; name: string; startMinute: number; endMinute: number; graceMinutes: number; isDefault: boolean; isActive: boolean },
+  /** "YYYY-MM-DD": a grace change applies from this date; earlier days keep the old grace. Omitted = applies to all days. */
+  graceFrom?: string,
 ) {
   assertPermission(actor, "settings.organisation", "all");
   if (input.startMinute === input.endMinute) throw new AppError("Shift start and end cannot be the same.");
@@ -204,6 +176,22 @@ export async function saveShift(
       const before = input.id ? await tx.shift.findUnique({ where: { id: input.id } }) : null;
       const { id, ...data } = input;
       const after = id ? await tx.shift.update({ where: { id }, data }) : await tx.shift.create({ data });
+      if (before && graceFrom && before.graceMinutes !== after.graceMinutes) {
+        // Keep the old grace for earlier days: the first change records the original grace as the starting step.
+        if ((await tx.shiftGraceStep.count({ where: { shiftId: after.id } })) === 0) {
+          await tx.shiftGraceStep.create({ data: { shiftId: after.id, effectiveFrom: new Date("2000-01-01T00:00:00Z"), graceMinutes: before.graceMinutes } });
+        }
+        const from = new Date(`${graceFrom}T00:00:00Z`);
+        // A new change replaces any later planned steps.
+        await tx.shiftGraceStep.deleteMany({ where: { shiftId: after.id, effectiveFrom: { gt: from } } });
+        await tx.shiftGraceStep.upsert({
+          where: { shiftId_effectiveFrom: { shiftId: after.id, effectiveFrom: from } },
+          create: { shiftId: after.id, effectiveFrom: from, graceMinutes: after.graceMinutes },
+          update: { graceMinutes: after.graceMinutes },
+        });
+      } else if (before && !graceFrom && before.graceMinutes !== after.graceMinutes) {
+        await tx.shiftGraceStep.deleteMany({ where: { shiftId: after.id } });
+      }
       await recordAudit({ actor, action: id ? "shift.update" : "shift.create", entityType: "Shift", entityId: after.id, before, after }, tx);
       return { after, timingChanged: !before || before.startMinute !== after.startMinute || before.endMinute !== after.endMinute || before.graceMinutes !== after.graceMinutes || before.isDefault !== after.isDefault };
     });

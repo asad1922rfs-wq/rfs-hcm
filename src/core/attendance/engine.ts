@@ -56,27 +56,32 @@ export function addDaysIso(date: string, days: number): string {
 /** A shift with optional weekday-specific timings (e.g. Friday 3 PM – 12 AM). */
 export type DayAwareShift = ShiftRule & {
   overrides?: readonly { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[];
-  /** Day-of-month ranges with their own grace (and optionally timing). */
-  dateRules?: readonly DateRule[];
+  /** Grace history: from each date onwards the grace is that step's (earlier dates keep the older grace). */
+  graceSteps?: readonly GraceStep[];
 };
 
-export type DateRule = { fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number };
+export type GraceStep = { effectiveFrom: Date | string; graceMinutes: number };
 
-/** The date rule covering a day of the month (fromDay > toDay wraps past month end). */
-export function dateRuleFor(rules: readonly DateRule[] | undefined, day: number): DateRule | undefined {
-  return rules?.find((r) => (r.fromDay <= r.toDay ? day >= r.fromDay && day <= r.toDay : day >= r.fromDay || day <= r.toDay));
+/** The shift grace on a date from its history, or undefined when there is no step on or before it. */
+export function graceOn(steps: readonly GraceStep[] | undefined, date: string): number | undefined {
+  let best: { from: string; grace: number } | undefined;
+  for (const st of steps ?? []) {
+    const from = typeof st.effectiveFrom === "string" ? st.effectiveFrom.slice(0, 10) : st.effectiveFrom.toISOString().slice(0, 10);
+    if (from <= date && (!best || from > best.from)) best = { from, grace: st.graceMinutes };
+  }
+  return best?.grace;
 }
 
 /**
- * The timing that applies on a given work date. Timing: weekday override, else the date rule's own timing, else
- * the shift's. Grace: the date rule's, else the weekday override's, else the shift's.
+ * The timing that applies on a given work date. Weekday overrides without their own grace use the shift's grace
+ * as it was on that date (grace history), so a grace change applies only from its effective date.
  */
 export function ruleForDate(shift: DayAwareShift, date: string): ShiftRule {
-  const d = new Date(`${date}T00:00:00Z`);
-  const o = shift.overrides?.find((x) => x.weekday === d.getUTCDay());
-  const r = dateRuleFor(shift.dateRules, d.getUTCDate());
-  const timing = o ?? (r && r.startMinute !== null && r.endMinute !== null ? { startMinute: r.startMinute, endMinute: r.endMinute } : shift);
-  return { startMinute: timing.startMinute, endMinute: timing.endMinute, graceMinutes: r?.graceMinutes ?? o?.graceMinutes ?? shift.graceMinutes };
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const grace = graceOn(shift.graceSteps, date) ?? shift.graceMinutes;
+  const o = shift.overrides?.find((x) => x.weekday === weekday);
+  if (o) return { startMinute: o.startMinute, endMinute: o.endMinute, graceMinutes: o.graceMinutes ?? grace };
+  return { startMinute: shift.startMinute, endMinute: shift.endMinute, graceMinutes: grace };
 }
 
 /**

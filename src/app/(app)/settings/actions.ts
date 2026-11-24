@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireActor } from "@/server/auth/session";
 import { passwordSchema } from "@/server/auth/password";
 import { formObject, runAction } from "@/server/action";
-import { deleteShiftDateRule, deleteShiftOverride, saveDepartment, saveShiftDateRule, saveDesignation, saveShift, saveShiftOverride, updateCompany } from "@/server/services/organisation";
+import { deleteShiftOverride, saveDepartment, saveDesignation, saveShift, saveShiftOverride, updateCompany } from "@/server/services/organisation";
 import { createLoginsInBulk, createUser, resetRoleToDefault, type BulkLogin, resetUserPassword, updateRolePermissions, updateUser } from "@/server/services/users";
 import { optionalId, optionalText, requiredText } from "@/lib/validation";
 import { parseTimeOfDay } from "@/lib/format";
@@ -82,9 +82,10 @@ export async function saveShiftAction(_prev: ActionResult | null, fd: FormData):
         graceMinutes: z.coerce.number().int().min(0, "Grace cannot be negative.").max(240, "Grace is at most 240 minutes."),
         isDefault: checkbox,
         isActive: checkbox,
+        graceFrom: z.preprocess((v) => (v === "" || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Choose a date.").optional()),
       })
       .parse({ ...formObject(fd), isDefault: fd.get("isDefault"), isActive: fd.get("isActive") });
-    await saveShift(actor, { id: input.id, name: input.name, startMinute: input.start, endMinute: input.end, graceMinutes: input.graceMinutes, isDefault: input.isDefault, isActive: input.isActive });
+    await saveShift(actor, { id: input.id, name: input.name, startMinute: input.start, endMinute: input.end, graceMinutes: input.graceMinutes, isDefault: input.isDefault, isActive: input.isActive }, input.graceFrom);
     revalidatePath("/settings/shifts");
     return { ok: true, message: "Shift saved." };
   });
@@ -114,30 +115,6 @@ export async function deleteShiftOverrideAction(overrideId: string): Promise<Act
     revalidatePath("/settings/shifts");
     revalidatePath("/dashboard");
     return { ok: true, message: "Day timing removed and attendance recalculated." };
-  });
-}
-
-export async function saveShiftDateRuleAction(shiftId: string, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  return runAction(async () => {
-    const actor = await requireActor();
-    const optTime = (label: string) => z.preprocess((v) => (v === "" || v == null ? null : v), time(label).nullable());
-    const day = z.coerce.number().int().min(1, "Days are 1–31.").max(31, "Days are 1–31.");
-    const input = z
-      .object({ fromDay: day, toDay: day, start: optTime("Start time"), end: optTime("End time"), graceMinutes: z.coerce.number().int().min(0).max(240) })
-      .parse(formObject(fd));
-    await saveShiftDateRule(actor, { shiftId, fromDay: input.fromDay, toDay: input.toDay, startMinute: input.start, endMinute: input.end, graceMinutes: input.graceMinutes });
-    revalidatePath("/settings/shifts");
-    revalidatePath("/dashboard");
-    return { ok: true, message: "Date-range grace saved and attendance recalculated." };
-  });
-}
-
-export async function deleteShiftDateRuleAction(ruleId: string): Promise<ActionResult> {
-  return runAction(async () => {
-    await deleteShiftDateRule(await requireActor(), ruleId);
-    revalidatePath("/settings/shifts");
-    revalidatePath("/dashboard");
-    return { ok: true, message: "Date-range grace removed and attendance recalculated." };
   });
 }
 

@@ -76,8 +76,8 @@ async function loadRequest(id: string) {
 /** The day's worked time and the shift length it is judged against (the shift the day was computed on). */
 async function dayHours(employeeId: string, date: string) {
   const day = await db.attendanceDay.findUnique({ where: { employeeId_workDate: { employeeId, workDate: d0(date) } } });
-  const shift = day?.shiftId ? await db.shift.findUnique({ where: { id: day.shiftId }, include: { dayOverrides: true, dateRules: true } }) : null;
-  const rule = ruleForDate(shift ? { ...shift, overrides: shift.dayOverrides, dateRules: shift.dateRules } : FALLBACK_SHIFT, date);
+  const shift = day?.shiftId ? await db.shift.findUnique({ where: { id: day.shiftId }, include: { dayOverrides: true, graceSteps: true } }) : null;
+  const rule = ruleForDate(shift ? { ...shift, overrides: shift.dayOverrides, graceSteps: shift.graceSteps } : FALLBACK_SHIFT, date);
   return { day, requiredMinutes: requiredShiftMinutes(rule) };
 }
 

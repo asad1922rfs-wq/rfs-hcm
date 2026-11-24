@@ -58,7 +58,7 @@ async function validateAdjustment(actor: Actor, dateStr: string, input: Adjustme
   }
   if (input.reason.trim().length < 3) throw new AppError("Give a reason for the change.");
   const shift = input.shiftId
-    ? await db.shift.findFirst({ where: { id: input.shiftId, isActive: true }, include: { dayOverrides: true, dateRules: true } })
+    ? await db.shift.findFirst({ where: { id: input.shiftId, isActive: true }, include: { dayOverrides: true, graceSteps: true } })
     : null;
   if (input.shiftId && !shift) throw new AppError("That shift no longer exists or is inactive.");
   return { date, shift };
@@ -118,20 +118,20 @@ function snapshot(day: { status: string; firstIn: Date | null; lastOut: Date | n
 
 type ShiftWithOverrides = Omit<DayAwareShift, "overrides"> & {
   dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[];
-  dateRules: { fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number }[];
+  graceSteps: { effectiveFrom: Date; graceMinutes: number }[];
 };
 
-const defaultShift = () => db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, dateRules: true } });
+const defaultShift = () => db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, graceSteps: true } });
 
 function shiftStartFor(shift: ShiftWithOverrides | null, date: string): number | null {
-  return shift ? ruleForDate({ ...shift, overrides: shift.dayOverrides, dateRules: shift.dateRules }, date).startMinute : null;
+  return shift ? ruleForDate({ ...shift, overrides: shift.dayOverrides, graceSteps: shift.graceSteps }, date).startMinute : null;
 }
 
 export async function saveAttendanceAdjustment(actor: Actor, input: AdjustmentInput & { employeeId: string; date: string }) {
   const { date, shift: chosenShift } = await validateAdjustment(actor, input.date, input);
   const employee = await db.employee.findUnique({
     where: { id: input.employeeId },
-    select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true, dateRules: true } } },
+    select: { id: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true, graceSteps: true } } },
   });
   if (!employee) throw new NotFoundError("Employee not found.");
   if (date < toDateOnlyString(employee.joiningDate)) throw new AppError("That date is before the employee's joining date.");
@@ -171,7 +171,7 @@ export async function bulkSaveAttendanceAdjustments(actor: Actor, input: Adjustm
   const [employees, beforeDays] = await Promise.all([
     db.employee.findMany({
       where: { id: { in: ids } },
-      select: { id: true, fullName: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true, dateRules: true } } },
+      select: { id: true, fullName: true, joiningDate: true, exitDate: true, shift: { include: { dayOverrides: true, graceSteps: true } } },
     }),
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate } }),
   ]);
@@ -277,7 +277,7 @@ export type ShiftOption = DayAwareShift & { id: string; name: string };
 
 type EmployeeForRegister = {
   id: string; employeeCode: string; fullName: string; department: { name: string } | null; workMode: string;
-  shift: (DayAwareShift & { name: string; dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[]; dateRules: { fromDay: number; toDay: number; startMinute: number | null; endMinute: number | null; graceMinutes: number }[]; }) | null;
+  shift: (DayAwareShift & { name: string; dayOverrides: { weekday: number; startMinute: number; endMinute: number; graceMinutes: number | null }[]; graceSteps: { effectiveFrom: Date; graceMinutes: number }[]; }) | null;
 };
 
 async function buildRows(employees: EmployeeForRegister[], dates: string[], canEdit: boolean): Promise<RegisterRow[]> {
@@ -288,10 +288,10 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
   const ids = employees.map((e) => e.id);
   const [days, adjustments, company, holidays, defaultShift] = await Promise.all([
     db.attendanceDay.findMany({ where: { employeeId: { in: ids }, workDate: range } }),
-    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range }, include: { shift: { include: { dayOverrides: true, dateRules: true } } } }),
+    db.attendanceAdjustment.findMany({ where: { employeeId: { in: ids }, workDate: range }, include: { shift: { include: { dayOverrides: true, graceSteps: true } } } }),
     db.company.findFirst({ select: { weekendDays: true } }),
     holidayDatesBetween(first, last),
-    db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true, dateRules: true } }),
+    db.shift.findFirst({ where: { isDefault: true }, include: { dayOverrides: true, graceSteps: true } }),
   ]);
   const weekend = weekendOf(company);
   const key = (id: string, d: string) => `${id}|${d}`;
@@ -301,12 +301,12 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
   const rows: RegisterRow[] = [];
   for (const e of employees) {
     const s = e.shift ?? defaultShift;
-    const shift: DayAwareShift | null = s ? { ...s, overrides: s.dayOverrides, dateRules: s.dateRules } : null;
+    const shift: DayAwareShift | null = s ? { ...s, overrides: s.dayOverrides, graceSteps: s.graceSteps } : null;
     for (const date of dates) {
       const d = dayMap.get(key(e.id, date));
       const a = adjMap.get(key(e.id, date));
       // A day judged against another shift (attendance edit) shows that shift's name and timing.
-      const dayShift: DayAwareShift | null = canEdit && a?.shift ? { ...a.shift, overrides: a.shift.dayOverrides, dateRules: a.shift.dateRules } : shift;
+      const dayShift: DayAwareShift | null = canEdit && a?.shift ? { ...a.shift, overrides: a.shift.dayOverrides, graceSteps: a.shift.graceSteps } : shift;
       const rule = dayShift ? ruleForDate(dayShift, date) : null;
       rows.push({
         employeeId: e.id,
@@ -336,17 +336,17 @@ async function buildRows(employees: EmployeeForRegister[], dates: string[], canE
 const employeeSelect = {
   id: true, employeeCode: true, fullName: true, workMode: true,
   department: { select: { name: true } },
-  shift: { include: { dayOverrides: true, dateRules: true } },
+  shift: { include: { dayOverrides: true, graceSteps: true } },
 } satisfies Prisma.EmployeeSelect;
 
 /** Active shifts to choose from in an attendance edit (only loaded for people who may edit). */
 async function shiftOptions(canEdit: boolean): Promise<ShiftOption[]> {
   if (!canEdit) return [];
-  const shifts = await db.shift.findMany({ where: { isActive: true }, orderBy: [{ isDefault: "desc" }, { name: "asc" }], include: { dayOverrides: true, dateRules: true } });
+  const shifts = await db.shift.findMany({ where: { isActive: true }, orderBy: [{ isDefault: "desc" }, { name: "asc" }], include: { dayOverrides: true, graceSteps: true } });
   return shifts.map((s) => ({
     id: s.id, name: s.name, startMinute: s.startMinute, endMinute: s.endMinute, graceMinutes: s.graceMinutes,
     overrides: s.dayOverrides.map((o) => ({ weekday: o.weekday, startMinute: o.startMinute, endMinute: o.endMinute, graceMinutes: o.graceMinutes })),
-    dateRules: s.dateRules.map((r) => ({ fromDay: r.fromDay, toDay: r.toDay, startMinute: r.startMinute, endMinute: r.endMinute, graceMinutes: r.graceMinutes })),
+    graceSteps: s.graceSteps.map((g) => ({ effectiveFrom: g.effectiveFrom, graceMinutes: g.graceMinutes })),
   }));
 }
 

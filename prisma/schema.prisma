@@ -76,7 +76,7 @@ model Shift {
   isActive     Boolean    @default(true)
   employees    Employee[]
   dayOverrides ShiftDayOverride[]
-  dateRules    ShiftDateRule[]
+  graceSteps   ShiftGraceStep[]
   adjustments  AttendanceAdjustment[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -96,20 +96,16 @@ model ShiftDayOverride {
   @@unique([shiftId, weekday])
 }
 
-/// A grace period (and optionally a timing) for certain days of every month, e.g. days 1–15 grace 30 min.
-/// fromDay > toDay wraps past month end (25 → 5). Weekday timings (e.g. Friday) keep their hours; the grace here wins.
-model ShiftDateRule {
-  id           String   @id @default(cuid())
-  shiftId      String
-  shift        Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  fromDay      Int
-  toDay        Int
-  startMinute  Int?
-  endMinute    Int?
-  graceMinutes Int
-  createdAt    DateTime @default(now())
+/// Grace history: from effectiveFrom onwards the shift's grace is graceMinutes (until a later step). Earlier dates keep the older grace.
+model ShiftGraceStep {
+  id            String   @id @default(cuid())
+  shiftId       String
+  shift         Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  effectiveFrom DateTime @db.Date
+  graceMinutes  Int
+  createdAt     DateTime @default(now())
 
-  @@index([shiftId])
+  @@unique([shiftId, effectiveFrom])
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Employees â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

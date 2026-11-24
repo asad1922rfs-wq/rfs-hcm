@@ -24,13 +24,13 @@ export type WorkClock = {
 /** Today's sign-in/out for the employee's current work day (a 3 PM–12 AM shift still counts at 12:30 AM). */
 export async function todayWorkClock(employeeId: string): Promise<WorkClock | null> {
   const [employee, defaultShift, company] = await Promise.all([
-    db.employee.findUnique({ where: { id: employeeId }, select: { workMode: true, flexibleFrom: true, shift: { include: { dayOverrides: true, dateRules: true } } } }),
-    db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, dateRules: true } }),
+    db.employee.findUnique({ where: { id: employeeId }, select: { workMode: true, flexibleFrom: true, shift: { include: { dayOverrides: true, graceSteps: true } } } }),
+    db.shift.findFirst({ where: { isDefault: true, isActive: true }, include: { dayOverrides: true, graceSteps: true } }),
     db.company.findFirst({ select: { weekendDays: true } }),
   ]);
   const s = employee?.shift ?? defaultShift;
   if (!s) return null;
-  const shift: DayAwareShift = { ...s, overrides: s.dayOverrides, dateRules: s.dateRules };
+  const shift: DayAwareShift = { ...s, overrides: s.dayOverrides, graceSteps: s.graceSteps };
   const now = new Date();
   const remote = employee?.workMode === "REMOTE";
   // Remote: the work day opened by a sign-in in the last 20 hours, as the attendance engine groups it.
